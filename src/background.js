@@ -6,6 +6,10 @@ let activeFetchCapture = null;
 let activeRedirectCapture = null;
 const FETCH_RULE_ID = 2147483647;
 const sessionKey = (kind, tabId) => `${kind}:${tabId}`;
+const extensionOrigin = chrome.runtime.getURL('/').replace(/\/$/, '');
+const extensionInitiatorDomain = new URL(chrome.runtime.getURL('/')).hostname;
+const isFirefox = typeof chrome.runtime.getBrowserInfo === 'function';
+const extraHeaderSpec = isFirefox ? [] : ['extraHeaders'];
 
 function serial(queue, key, action) {
   const previous = queue.get(key) || Promise.resolve();
@@ -76,13 +80,14 @@ async function readPreview(response) {
 }
 
 async function fetchRequest(request, captureHeaders = false) {
+  if (isFirefox && request.pauseRedirects) throw new Error('Firefox cannot inspect intermediate redirects from extension Fetch requests. Turn off Pause on redirects.');
   // Chrome-managed headers are applied through a temporary network rule.
   const headers = [...request.headers];
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   if (hasBody && !headers.some(header => header.name.toLowerCase() === 'content-type')) {
     headers.push({name: 'Content-Type', value: {form: 'application/x-www-form-urlencoded;charset=UTF-8', json: 'application/json', xml: 'application/xml', text: 'text/plain;charset=UTF-8'}[request.bodyType]});
   }
-  const rule = headerRule(FETCH_RULE_ID, headers, {tabIds: [-1], initiatorDomains: [chrome.runtime.id], requestDomains: [new URL(request.url).hostname], resourceTypes: ['xmlhttprequest']});
+  const rule = headerRule(FETCH_RULE_ID, headers, {tabIds: [-1], initiatorDomains: [extensionInitiatorDomain], requestDomains: [new URL(request.url).hostname], resourceTypes: ['xmlhttprequest']});
   await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [FETCH_RULE_ID], addRules: headers.length ? [rule] : []});
   const started = performance.now();
   if (captureHeaders) activeFetchCapture = {headers: []};
@@ -125,6 +130,11 @@ async function fetchPageHeaders(tabId) {
     const url = pageUrl.href;
     const key = sessionKey('page-headers', tabId);
     const captured = (await chrome.storage.session.get(key))[key];
+    if (isFirefox) {
+      const headersText = captured?.url === url ? editableHeaders(captured.headers) : '';
+      if (!headersText) throw new Error('Reload the inspected page to capture its request headers in Firefox.');
+      return {url, headersText};
+    }
     // Preserve the page's authentication and normal content negotiation.
     const headers = captured?.url === url ? parseHeaders(editableHeaders(captured.headers)).filter(header => /^(?:accept|accept-language|authorization|cookie|origin|referer|user-agent)$/i.test(header.name)) : [];
     const job = fetchQueue.catch(() => {}).then(() => fetchRequest({url, method:'GET', headers}, true));
@@ -212,7 +222,7 @@ chrome.webRequest.onBeforeRequest.addListener(details => {
 }, {urls: ['http://*/*', 'https://*/*'], types: ['main_frame']}, ['requestBody']);
 
 chrome.webRequest.onSendHeaders.addListener(details => {
-  if (activeFetchCapture && details.tabId === -1 && details.initiator === chrome.runtime.getURL('').slice(0, -1)) {
+  if (activeFetchCapture && details.tabId === -1 && details.initiator === extensionOrigin) {
     activeFetchCapture.headers = details.requestHeaders || [];
   }
   if (details.type === 'main_frame' && details.tabId >= 0) {
@@ -220,17 +230,17 @@ chrome.webRequest.onSendHeaders.addListener(details => {
       [sessionKey('page-headers', details.tabId)]: {url: details.url, headers: details.requestHeaders || []}
     })).catch(() => {});
   }
-}, {urls: ['http://*/*', 'https://*/*'], types: ['main_frame', 'xmlhttprequest']}, ['requestHeaders', 'extraHeaders']);
+}, {urls: ['http://*/*', 'https://*/*'], types: ['main_frame', 'xmlhttprequest']}, ['requestHeaders', ...extraHeaderSpec]);
 
 chrome.webRequest.onHeadersReceived.addListener(details => {
-  if (!activeRedirectCapture || details.tabId !== -1 || details.initiator !== chrome.runtime.getURL('').slice(0,-1)) return;
+  if (!activeRedirectCapture || details.tabId !== -1 || details.initiator !== extensionOrigin) return;
   const observedUrl = new URL(details.url);
   observedUrl.hash = '';
   if (observedUrl.href !== activeRedirectCapture.url) return;
   if (![301,302,303,307,308].includes(details.statusCode)) return;
   const location = details.responseHeaders?.find(header => header.name.toLowerCase() === 'location')?.value;
   activeRedirectCapture.hop = {statusCode: details.statusCode, statusText: details.statusLine?.replace(/^HTTP\/\S+\s+\d+\s*/, '') || '', location, headers: (details.responseHeaders || []).map(({name,value}) => `${name}: ${value ?? ''}`).join('\n')};
-}, {urls: ['http://*/*','https://*/*'], types: ['xmlhttprequest']}, ['responseHeaders','extraHeaders']);
+}, {urls: ['http://*/*','https://*/*'], types: ['xmlhttprequest']}, ['responseHeaders', ...extraHeaderSpec]);
 
 chrome.tabs.onRemoved.addListener(tabId => {
   chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [tabId + 1]}).catch(() => {});

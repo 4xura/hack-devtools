@@ -1,6 +1,6 @@
 # Architecture
 
-HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN assets, injected page listeners, or build step.
+HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN assets, or injected page listeners. The Chrome variant runs from the repository root. `scripts/build-firefox.js` copies the shared source and assets into `dist/firefox-unpacked`, translates `chrome` API calls to Firefox's Promise-based `browser` namespace, and writes a Firefox manifest. Generated files are ignored by Git.
 
 | File | Responsibility |
 | --- | --- |
@@ -12,20 +12,21 @@ HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN 
 | `src/payloads.js` | Searchable text template catalog |
 | `src/payloads-extra.js` | SSTI, SSRF, and 403-bypass catalog entries |
 | `styles/panel.css` | Responsive layout, system appearance, and explicit themes |
+| `scripts/build-firefox.js` | Firefox manifest, source copy, and ZIP packaging |
 
 ## Requests
 
-The panel sends structured messages to the service worker. Only messages from the extension’s own `panel.html` are accepted. Validation is repeated in the worker. Per-tab queues serialize request changes; a separate queue serializes Fetch header rules.
+The panel sends structured messages to the Chrome service worker or Firefox background page. Only messages from the extension’s own `panel.html` are accepted. Validation is repeated in the background context. Per-tab queues serialize request changes; a separate queue serializes Fetch header rules.
 
 Navigation uses `tabs.update` for GET and `scripting.executeScript` with structured arguments for form POST. The injected function creates hidden inputs in the isolated extension world and calls the native form submit method, including when a field is named `submit`.
 
 Header modifications use declarative session rules. Navigation rules are constrained by tab, destination hostname, and main-frame resource type. Fetch rules use the extension initiator, destination hostname, and request resource type, and are removed in a `finally` block. Automatic redirects can be followed by Chrome; overrides do not match other destination hostnames. Fetch streams responses into a bounded text preview.
 
-In manual redirect mode, Fetch uses `redirect: 'manual'`. Chrome returns an opaque redirect, so the worker records the matching extension request's intermediate status, response headers, and Location through the read-only `onHeadersReceived` event. Each next hop is built from the previous request and redirect status: `301`/`302` switch POST to GET; `303` switches non-GET/HEAD to GET; `307`/`308` preserve method and body. Browser tab navigation is offered only for GET hops. The worker queues Fetch requests so redirect capture is associated with one request at a time.
+In Chrome manual redirect mode, Fetch uses `redirect: 'manual'`. Chrome returns an opaque redirect, so the worker records the matching extension request's intermediate status, response headers, and Location through the read-only `onHeadersReceived` event. Each next hop is built from the previous request and redirect status: `301`/`302` switch POST to GET; `303` switches non-GET/HEAD to GET; `307`/`308` preserve method and body. Browser tab navigation is offered only for GET hops. The worker queues Fetch requests so redirect capture is associated with one request at a time. Firefox does not emit the necessary webRequest event for extension-origin Fetch requests; the Firefox variant disables manual inspection and keeps automatic redirect following.
 
 The panel resolves follow-up URL templates from the initial JSON response. It restricts these GETs to the response origin and passes them through the same serialized Fetch queue. Polling stays in the panel so users can stop it. It stops on the configured ready state, a failed state, or after 30 checks. Result tabs read a session-scoped text snapshot and render it through `textContent`; closing the tab deletes that snapshot. A redirect destination can be opened separately with a browser GET.
 
-Top-level navigation request bodies and outgoing headers are captured with the read-only webRequest API. The header editor’s Fetch action runs a background GET through the serialized Fetch queue, observes its final outgoing headers with `onSendHeaders` and `extraHeaders`, and returns an editable subset. It does not navigate the tab, save a replay-history entry, or reuse a POST body. Response headers remain in the separate response preview.
+Top-level navigation request bodies and outgoing headers are captured with the read-only webRequest API. In Chrome, the header editor’s Fetch action runs a background GET through the serialized Fetch queue, observes its final outgoing headers with `onSendHeaders` and `extraHeaders`, and returns an editable subset. In Firefox, it loads the last headers captured from the inspected page's navigation because Firefox does not emit webRequest events for extension-origin Fetch. It does not navigate the tab, save a replay-history entry, or reuse a POST body. Response headers remain in the separate response preview.
 
 Per-tab session state survives service worker suspension. Tab closure removes captured data, drafts, history, and header rules.
 

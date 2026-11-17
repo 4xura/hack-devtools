@@ -5,8 +5,10 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+const packageInfo = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.name, 'HackTab');
+assert.equal(manifest.version, packageInfo.version);
 for (const key of ['key','update_url','homepage_url']) assert(!(key in manifest), `Unexpected manifest identity field: ${key}`);
 for (const file of [manifest.devtools_page, manifest.background.service_worker, 'viewer.html', ...Object.values(manifest.icons)]) assert(fs.existsSync(path.join(root, file)), `Missing: ${file}`);
 function walk(dir) {

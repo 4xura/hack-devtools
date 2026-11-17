@@ -43,11 +43,13 @@ function saveDraft() {
 }
 function updateMode() {
   const navigation = $('mode').value === 'navigate';
-  $('pause-redirects').disabled = navigation;
-  if (navigation) $('pause-redirects').checked = false;
+  const firefox = typeof chrome.runtime.getBrowserInfo === 'function';
+  $('pause-redirects').disabled = navigation || firefox;
+  $('pause-redirects').title = firefox ? 'Firefox follows extension Fetch redirects automatically; intermediate Location is unavailable.' : '';
+  if (navigation || firefox) $('pause-redirects').checked = false;
   const method = $('method').value;
   $('body').disabled = method === 'GET' || method === 'HEAD';
-  $('mode-hint').textContent = navigation ? 'GET or form POST in the inspected page' : 'Raw request with a text response preview · 30s timeout';
+  $('mode-hint').textContent = navigation ? 'GET or form POST in the inspected page' : firefox ? 'Raw response preview · redirects followed automatically' : 'Raw request with a text response preview · 30s timeout';
 }
 function remember(field) {
   const stack = undoStacks.get(field) || [];
@@ -296,7 +298,7 @@ $('fetch-headers').addEventListener('click', async () => {
   finally {button.disabled = false;}
 });
 $('header-preset').addEventListener('change', event => {
-  const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: HackTab/0.1', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
+  const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: HackTab/1.0', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
   const preset = presets[event.target.value];
   if (preset) {
     remember($('headers'));

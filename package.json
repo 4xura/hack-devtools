@@ -1,9 +1,23 @@
 {
   "name": "hacktab",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "HackTab DevTools extension",
-  "scripts": {"test": "node --test tests/core.test.js", "test:browser": "node tests/browser.test.js", "check": "node scripts/check.js", "package": "node scripts/package.js"},
-  "engines": {"node": ">=22"}
+  "scripts": {
+    "test": "node --test tests/core.test.js",
+    "test:browser": "node tests/browser.test.js",
+    "check": "node scripts/check.js",
+    "package": "node scripts/package.js",
+    "package:firefox": "node scripts/build-firefox.js",
+    "package:all": "npm run package && npm run package:firefox",
+    "lint:firefox": "web-ext lint --source-dir dist/firefox-unpacked",
+    "test:firefox": "node tests/firefox.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "web-ext": "^10.8.0"
+  }
 }
