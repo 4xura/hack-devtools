@@ -299,6 +299,27 @@ async function run(){
   await call('Page.bringToFront',{},panel.sessionId);
   await evaluate(panel.sessionId,`(() => {
     const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/redirect-post')});set('method','POST');set('mode','fetch');set('body-type','json');set('body','{"step":"edit"}');set('headers','Content-Type: application/json');
+    const pause=document.getElementById('pause-redirects');pause.checked=true;pause.dispatchEvent(new Event('change'));
+    document.getElementById('send').click();
+  })()`);
+  await until(()=>evaluate(panel.sessionId,"!document.getElementById('redirect-pane').hidden && document.getElementById('redirect-status').textContent.startsWith('302')"),'editable 302 panel');
+  await evaluate(panel.sessionId,"document.getElementById('redirect-edit').click()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/redirect-post-final');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('method').value"),'GET');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value"),'');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('pause-redirects').checked"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-pane').hidden"),true);
+  await evaluate(panel.sessionId,`(() => {document.getElementById('url').value=${JSON.stringify(base+'/redirect-post-final?edited=1')};document.getElementById('headers').value='X-Edited: yes';document.getElementById('send').click();})()`);
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('response-url').textContent.endsWith('/redirect-post-final?edited=1')"),'edited redirect request');
+  const edited=await getRequest('/redirect-post-final?edited=1');
+  assert.equal(edited.method,'GET'); assert.equal(edited.headers['x-edited'],'yes');
+  console.log('PASS: Redirect hop loads into composer and sends edited URL and headers');
+
+  await call('Page.bringToFront',{},panel.sessionId);
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
     set('url',${JSON.stringify(base+'/redirect-307')});set('method','POST');set('mode','fetch');set('body-type','json');set('body','{"step":307}');set('headers','Content-Type: application/json');
     const pause=document.getElementById('pause-redirects');pause.checked=true;pause.dispatchEvent(new Event('change'));
     document.getElementById('send').click();

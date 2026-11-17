@@ -354,6 +354,18 @@ $('clear-history').addEventListener('click', async () => {
   catch (error) {status(error.message, true);}
 });
 $('response-close').addEventListener('click', () => {$('response-pane').hidden = true;});
+$('redirect-edit').addEventListener('click', () => {
+  try {
+    if (!pendingRedirect) throw new Error('No redirect hop is available to edit.');
+    const next = nextRedirectRequest(pendingRedirect.request, pendingRedirect.result);
+    writeRequest(next);
+    pendingRedirect = null;
+    $('redirect-pane').hidden = true;
+    $('url').focus();
+    $('url').scrollIntoView({block: 'center'});
+    status('Next hop loaded. Edit the request and press Send.', false, true);
+  } catch (error) {status(error.message, true);}
+});
 $('redirect-fetch').addEventListener('click', () => continueRedirect('fetch'));
 $('redirect-tab').addEventListener('click', () => continueRedirect('navigate'));
 $('follow-once').addEventListener('click', () => followRequest(false));
