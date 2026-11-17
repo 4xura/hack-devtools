@@ -1,0 +1,188 @@
+import {spawn} from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import {randomUUID} from 'node:crypto';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const output = path.join(root, 'work');
+fs.mkdirSync(output, {recursive:true});
+const profile = path.join(output, 'chrome-' + randomUUID());
+const chromePath = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const requests = [], exceptions = [];
+const server = http.createServer((request, response) => {
+  let body = '';
+  request.on('data', data => body += data);
+  request.on('end', () => {
+    requests.push({url:request.url, method:request.method, headers:request.headers, body});
+    if (request.url === '/redirect') {response.writeHead(302,{Location:'http://localhost:'+server.address().port+'/redirected'}); response.end(); return;}
+    if (request.url === '/large') {response.setHeader('Content-Type','text/plain'); response.end('x'.repeat(1048600)); return;}
+    if (request.url === '/json') {response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({received:body})); return;}
+    response.setHeader('Content-Type','text/html; charset=utf-8');
+    response.end('<!doctype html><title>Local test</title><body>HackTab local test</body>');
+  });
+});
+const child = spawn(chromePath, ['--headless=new','--no-first-run','--no-default-browser-check','--disable-background-networking','--remote-debugging-pipe','--enable-unsafe-extension-debugging','--user-data-dir='+profile,'about:blank'], {windowsHide:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
+let sequence=0, buffer='';
+const pending=new Map();
+child.stdio[4].on('data',data=>{
+  buffer+=data;
+  let end;
+  while((end=buffer.indexOf('\0'))>=0){
+    const message=JSON.parse(buffer.slice(0,end)); buffer=buffer.slice(end+1);
+    if(message.method==='Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails);
+    const item=pending.get(message.id);
+    if(item){pending.delete(message.id); clearTimeout(item.timer); message.error?item.reject(new Error(JSON.stringify(message.error))):item.resolve(message.result);}
+  }
+});
+function call(method,params={},sessionId){
+  return new Promise((resolve,reject)=>{
+    const id=++sequence;
+    const timer=setTimeout(()=>{pending.delete(id); reject(new Error('Timeout: '+method));},15000);
+    pending.set(id,{resolve,reject,timer});
+    child.stdio[3].write(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})})+'\0');
+  });
+}
+async function evaluate(session,expression){
+  const result=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},session);
+  if(result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+  return result.result.value;
+}
+async function until(check,label){
+  const deadline=Date.now()+10000;
+  while(Date.now()<deadline){const value=await check(); if(value)return value; await new Promise(resolve=>setTimeout(resolve,40));}
+  throw new Error('Timeout: '+label);
+}
+async function page(url){
+  const {targetId}=await call('Target.createTarget',{url});
+  const {sessionId}=await call('Target.attachToTarget',{targetId,flatten:true});
+  await call('Page.enable',{},sessionId); await call('Runtime.enable',{},sessionId);
+  return {targetId,sessionId};
+}
+let panel, inspected, base;
+async function rpc(action,extra={}){
+  const result=await evaluate(panel.sessionId,`chrome.runtime.sendMessage(${JSON.stringify({action,...extra})})`);
+  assert.equal(result.ok,true,result.error);
+  return result.result;
+}
+async function run(){
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  base='http://127.0.0.1:'+server.address().port;
+  console.log('Chrome:',(await call('Browser.getVersion')).product);
+  const {id}=await call('Extensions.loadUnpacked',{path:root});
+  console.log('PASS: Chrome loaded HackTab:',id);
+  inspected=await page(base+'/start');
+  await until(()=>requests.find(request=>request.url==='/start'),'initial page');
+  // Supply the inspected tab ID normally provided to a DevTools panel.
+  panel=await page('about:blank');
+  await call('Page.addScriptToEvaluateOnNewDocument',{source:`chrome.devtools={inspectedWindow:{tabId:-1}};`},panel.sessionId);
+  await call('Page.navigate',{url:`chrome-extension://${id}/panel.html`},panel.sessionId);
+  await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'panel ready');
+  const tabId=await evaluate(panel.sessionId,`chrome.tabs.query({}).then(tabs=>tabs.find(tab=>tab.url===${JSON.stringify(base+'/start')}).id)`);
+  await call('Page.addScriptToEvaluateOnNewDocument',{source:`chrome.devtools={inspectedWindow:{tabId:${tabId}}};`},panel.sessionId);
+  await call('Page.reload',{},panel.sessionId);
+  await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'panel reload');
+  const defaults={tabId,url:base+'/get',method:'GET',mode:'navigate',bodyType:'form',body:'',headersText:''};
+  const headers='Referer: https://request-test.invalid/source\nUser-Agent: HackTab-Test/1.0\nCookie: hacktab_test=ok';
+  async function execute(overrides){return rpc('execute',{request:{...defaults,...overrides}});}
+  async function getRequest(route){return until(()=>requests.find(request=>request.url===route),route);}
+  await execute({headersText:headers});
+  const get=await getRequest('/get');
+  assert.equal(get.headers['user-agent'],'HackTab-Test/1.0');
+  assert.equal(get.headers.referer,'https://request-test.invalid/source');
+  assert.equal(get.headers.cookie,'hacktab_test=ok');
+  const other=await page(base+'/other');
+  assert.notEqual((await getRequest('/other')).headers['user-agent'],'HackTab-Test/1.0');
+  await until(()=>evaluate(inspected.sessionId,"document.readyState==='complete'"),'GET complete');
+  await execute({url:base+'/post',method:'POST',body:'submit=ok&name=hello+world&repeat=one&repeat=two&encoded=a%26b&empty=&utf8=%E2%9C%93',headersText:headers});
+  const post=await getRequest('/post');
+  assert.equal(post.method,'POST');
+  const values=new URLSearchParams(post.body);
+  assert.equal(values.get('submit'),'ok'); assert.equal(values.get('name'),'hello world'); assert.equal(values.get('encoded'),'a&b'); assert.equal(values.get('empty'),''); assert.equal(values.get('utf8'),'✓'); assert.deepEqual(values.getAll('repeat'),['one','two']);
+  await until(()=>evaluate(inspected.sessionId,"document.readyState==='complete'"),'POST complete');
+  const loaded=await rpc('load',{tabId});
+  assert.equal(loaded.url,base+'/post'); assert.equal(new URLSearchParams(loaded.body).get('utf8'),'✓');
+  console.log('PASS: Navigate GET / POST, header overrides, tab isolation, and captured form data');
+
+  const fetched=await execute({url:base+'/json',mode:'fetch',method:'PATCH',bodyType:'json',body:'{"value":"✓"}',headersText:headers+'\nX-Probe: raw'});
+  const raw=await getRequest('/json');
+  assert.equal(raw.method,'PATCH'); assert.equal(raw.body,'{"value":"✓"}'); assert.equal(raw.headers['content-type'],'application/json'); assert.equal(raw.headers['x-probe'],'raw'); assert.equal(raw.headers.cookie,'hacktab_test=ok'); assert.equal(raw.headers['user-agent'],'HackTab-Test/1.0');
+  assert.equal(fetched.status,200); assert.equal(JSON.parse(fetched.body).received,raw.body);
+  await execute({url:base+'/redirect',mode:'fetch',headersText:headers+'\nX-Probe: redirect'});
+  const redirected=await getRequest('/redirected');
+  assert.notEqual(redirected.headers['user-agent'],'HackTab-Test/1.0');
+  assert(!redirected.headers['x-probe']); assert(!redirected.headers.cookie);
+  const [first,second]=await Promise.all([
+    execute({url:base+'/parallel-one',mode:'fetch',headersText:'X-Probe: one'}),
+    execute({url:base+'/parallel-two',mode:'fetch',headersText:'X-Probe: two'})
+  ]);
+  assert.equal(first.status,200); assert.equal(second.status,200);
+  assert.equal((await getRequest('/parallel-one')).headers['x-probe'],'one'); assert.equal((await getRequest('/parallel-two')).headers['x-probe'],'two');
+  const large=await execute({url:base+'/large',mode:'fetch'});
+  assert.equal(large.truncated,true); assert.equal(large.body.length,1048576);
+  console.log('PASS: Fetch raw JSON, custom headers, serialized requests, and bounded response previews');
+
+  await rpc('reset-headers',{tabId});
+  await call('Page.navigate',{url:base+'/reset'},inspected.sessionId);
+  assert.notEqual((await getRequest('/reset')).headers['user-agent'],'HackTab-Test/1.0');
+  const history=await rpc('history',{tabId});
+  assert(history.length>=6);
+  await call('ServiceWorker.enable',{},inspected.sessionId); await call('ServiceWorker.stopAllWorkers',{},inspected.sessionId);
+  assert.equal((await rpc('history',{tabId})).length,history.length);
+  const invalid=await evaluate(panel.sessionId,`chrome.runtime.sendMessage(${JSON.stringify({action:'execute',request:{...defaults,url:'javascript:alert(1)'}})})`);
+  assert.equal(invalid.ok,false);
+  console.log('PASS: Header reset, worker restart, session history, and rejected invalid requests');
+
+  await call('Page.bringToFront',{},panel.sessionId);
+  await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
+  await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'dark'}]},panel.sessionId);
+  assert.equal(await evaluate(panel.sessionId,"document.documentElement.dataset.theme"),'system');
+  const dark=await evaluate(panel.sessionId,"getComputedStyle(document.body).backgroundColor");
+  await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'}]},panel.sessionId);
+  assert.notEqual(await evaluate(panel.sessionId,"getComputedStyle(document.body).backgroundColor"),dark);
+  await evaluate(panel.sessionId,"document.getElementById('theme').value='dark';document.getElementById('theme').dispatchEvent(new Event('change'));");
+  assert.equal(await evaluate(panel.sessionId,"getComputedStyle(document.body).backgroundColor"),dark);
+  await evaluate(panel.sessionId,"document.getElementById('scratch').focus();document.getElementById('scratch').value='abcXYZdef';document.getElementById('scratch').setSelectionRange(3,6);document.getElementById('search').value='script element';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abc<script>alert(1)</script>def',await evaluate(panel.sessionId,"document.getElementById('status').textContent"));
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('#payload-list script')===null"),true);
+  await evaluate(panel.sessionId,"document.getElementById('undo').click()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abcXYZdef');
+  await evaluate(panel.sessionId,"document.getElementById('transform').value='base64-encode';document.getElementById('apply-transform').click()");
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('scratch').value==='abcWFla def'.replace(' ','')"),'selection transform');
+  console.log('PASS: Live system appearance, explicit theme, safe payload insertion, selection transforms, and undo');
+
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/ui-send')});set('method','POST');set('mode','fetch');set('body-type','xml');set('body','<probe>✓</probe>');set('headers','X-Probe: ui');document.getElementById('send').click();
+  })()`);
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('status').textContent==='Response 200 received.'"),'UI send');
+  assert.equal((await getRequest('/ui-send')).body,'<probe>✓</probe>');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('response-pane').hidden"),false);
+  assert((await evaluate(panel.sessionId,"document.getElementById('response-body').value")).includes('<!doctype html>'));
+  await evaluate(panel.sessionId,"document.getElementById('history-toggle').click()");
+  await until(()=>evaluate(panel.sessionId,"document.querySelectorAll('.history-entry').length>0"),'UI history');
+  await evaluate(panel.sessionId,"document.getElementById('theme').value='light';document.getElementById('theme').dispatchEvent(new Event('change'));document.getElementById('scratch').value='draft persistence';document.getElementById('scratch').dispatchEvent(new Event('input'));");
+  await until(()=>evaluate(panel.sessionId,`chrome.storage.session.get('draft:${tabId}').then(data=>data['draft:${tabId}']?.scratch==='draft persistence')`),'draft saved');
+  await call('Page.reload',{},panel.sessionId);
+  await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'restored panel');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'draft persistence');
+  assert.equal(await evaluate(panel.sessionId,"document.documentElement.dataset.theme"),'light');
+  console.log('PASS: Send-button XML request, inert response rendering, history UI, and persisted theme/draft');
+
+  await evaluate(panel.sessionId,"document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'));document.getElementById('scratch').value='Select text, then choose a payload or transformation.';");
+  for(const theme of ['light','dark']){
+    await evaluate(panel.sessionId,`document.getElementById('theme').value='${theme}';document.getElementById('theme').dispatchEvent(new Event('change'));`);
+    const shot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
+    fs.writeFileSync(path.join(output,`hacktab-${theme}.png`),Buffer.from(shot.data,'base64'));
+  }
+  await call('Emulation.setDeviceMetricsOverride',{width:600,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
+  assert.equal(await evaluate(panel.sessionId,'document.documentElement.scrollWidth<=innerWidth'),true);
+  const narrow=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
+  fs.writeFileSync(path.join(output,'hacktab-narrow.png'),Buffer.from(narrow.data,'base64'));
+  assert.equal(exceptions.length,0,JSON.stringify(exceptions));
+  console.log('PASS: Responsive layout without horizontal overflow; light/dark screenshots saved under work/');
+}
+try{await run();}catch(error){console.error('FAIL:',error.stack); if(exceptions.length) console.error(JSON.stringify(exceptions)); process.exitCode=1;}
+finally{await call('Browser.close').catch(()=>child.kill()); server.close();}

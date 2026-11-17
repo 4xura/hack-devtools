@@ -1,0 +1,241 @@
+import {columnList, interpolate, validateRequest} from './core.js';
+import {TRANSFORMS, transform} from './transforms.js';
+import {PAYLOADS, CATEGORIES, searchPayloads} from './payloads.js';
+
+const $ = id => document.getElementById(id);
+const tabId = chrome.devtools?.inspectedWindow?.tabId ?? -1;
+const draftKey = `draft:${tabId}`;
+const editors = ['url', 'body', 'headers', 'scratch'];
+const labels = {url: 'URL', body: 'request body', headers: 'headers', scratch: 'scratchpad'};
+let target = $('url'), category = 'All';
+const undoStacks = new WeakMap();
+let draftTimer, settingsTimer;
+
+function status(message, error = false) {
+  $('status').textContent = message;
+  $('status').dataset.error = String(error);
+}
+async function message(action, extra = {}) {
+  const response = await chrome.runtime.sendMessage({action, tabId, ...extra});
+  if (!response?.ok) throw new Error(response?.error || 'The request worker did not respond.');
+  return response.result;
+}
+function readRequest() {
+  return {tabId, url: $('url').value, method: $('method').value, mode: $('mode').value, bodyType: $('body-type').value, body: $('body').value, headersText: $('headers').value};
+}
+function writeRequest(request) {
+  for (const [field, key] of [['url', 'url'], ['method', 'method'], ['mode', 'mode'], ['body-type', 'bodyType'], ['body', 'body'], ['headers', 'headersText']]) {
+    if (request[key] !== undefined) $(field).value = request[key];
+  }
+  updateMode(); saveDraft();
+}
+function saveDraft() {
+  $('body-count').textContent = `${$('body').value.length.toLocaleString()} characters`;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    chrome.storage.session.set({[draftKey]: {...readRequest(), scratch: $('scratch').value}}).catch(error => status(error.message, true));
+  }, 200);
+}
+function updateMode() {
+  const navigation = $('mode').value === 'navigate';
+  const method = $('method').value;
+  $('body').disabled = method === 'GET' || method === 'HEAD';
+  $('mode-hint').textContent = navigation ? 'GET or form POST in the inspected page' : 'Raw request with a text response preview · 30s timeout';
+}
+function remember(field) {
+  const stack = undoStacks.get(field) || [];
+  stack.push({value: field.value, start: field.selectionStart, end: field.selectionEnd});
+  undoStacks.set(field, stack.slice(-30));
+}
+function insert(text) {
+  remember(target);
+  target.setRangeText(text, target.selectionStart, target.selectionEnd, 'select');
+  target.focus(); saveDraft();
+}
+function templateValues(entry) {
+  const values = {};
+  for (const key of ['column_count', 'seconds', 'database', 'table', 'columns', 'file', 'host', 'port']) values[key] = $(`opt-${key.replaceAll('_', '-')}`).value;
+  if (/\{\{(?:column_count|number_columns|null_columns)\}\}/.test(entry.template)) {
+    values.number_columns = columnList(values.column_count);
+    values.null_columns = columnList(values.column_count, 'null');
+  }
+  if (entry.template.includes('{{seconds}}')) {
+    const delay = Number(values.seconds);
+    if (!Number.isInteger(delay) || delay < 1 || delay > 59) throw new Error('Delay must be between 1 and 59 seconds.');
+    if (entry.section === 'MSSQL') values.seconds = String(delay).padStart(2, '0');
+  }
+  if (entry.template.includes('{{port}}')) {
+    const port = Number(values.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be between 1 and 65535.');
+  }
+  if (entry.template.includes('{{host}}') && !/^[a-z\d][a-z\d.-]*$/i.test(values.host)) throw new Error('Host must be an IPv4 address or hostname.');
+  values.relative_file = values.file.replace(/^\/+/, '');
+  values.selected = target.value.slice(target.selectionStart, target.selectionEnd) || 'probe';
+  return values;
+}
+function renderPayloads() {
+  const results = searchPayloads($('search').value, category);
+  $('payload-count').textContent = `${results.length} / ${PAYLOADS.length}`;
+  const fragment = document.createDocumentFragment();
+  let previousGroup = '';
+  for (const entry of results) {
+    const heading = `${entry.category} / ${entry.section}`;
+    if (heading !== previousGroup) {
+      const title = document.createElement('div'); title.className = 'payload-group'; title.textContent = heading;
+      fragment.append(title); previousGroup = heading;
+    }
+    const button = document.createElement('button'); button.className = 'payload'; button.type = 'button';
+    const label = document.createElement('span'); label.textContent = entry.label;
+    const code = document.createElement('code'); code.textContent = entry.template;
+    button.append(label, code); button.title = entry.template;
+    button.addEventListener('click', () => {
+      try {
+        const text = interpolate(entry.template, templateValues(entry));
+        insert($('encode-insert').checked ? encodeURIComponent(text) : text);
+        status(`Inserted ${entry.label} into ${labels[target.id]}.`);
+      } catch (error) { status(error.message, true); }
+    });
+    fragment.append(button);
+  }
+  if (!results.length) {
+    const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'No matching payloads. Try another search.'; fragment.append(empty);
+  }
+  $('payload-list').replaceChildren(fragment);
+}
+async function renderHistory() {
+  const history = await message('history');
+  const fragment = document.createDocumentFragment();
+  for (const entry of history) {
+    const button = document.createElement('button'); button.className = 'history-entry';
+    const method = document.createElement('strong'); method.textContent = entry.method;
+    const url = document.createElement('span'); url.textContent = entry.url;
+    const time = document.createElement('time'); time.textContent = new Date(entry.time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    button.append(method, url, time); button.title = `${entry.mode}: ${entry.url}`;
+    button.addEventListener('click', () => {writeRequest(entry); status('History restored. Review it, then Send.');});
+    fragment.append(button);
+  }
+  if (!history.length) {
+    const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'Requests from this tab appear here for the current browser session.'; fragment.append(empty);
+  }
+  $('history-list').replaceChildren(fragment);
+}
+async function send() {
+  if ($('send').disabled) return;
+  try {
+    const request = validateRequest(readRequest());
+    $('send').disabled = true; status('Sending request…');
+    const result = await message('execute', {request});
+    if (result.mode === 'fetch') {
+      $('response-pane').hidden = false;
+      $('response-meta').textContent = `${result.status} ${result.statusText} · ${result.duration} ms${result.truncated ? ' · preview limited to 1 MiB' : ''}`;
+      $('response-headers').textContent = result.headers;
+      $('response-body').value = result.body;
+      status(`Response ${result.status} received.`);
+    } else status(result.message);
+    if (!$('history-pane').hidden) await renderHistory();
+  } catch (error) { status(error.message, true); }
+  finally { $('send').disabled = false; }
+}
+async function loadPage() {
+  try {
+    const result = await message('load');
+    writeRequest({url: result.url, method: result.method, body: result.body, bodyType: 'form'});
+    status('Loaded the inspected page.');
+  } catch (error) { status(error.message, true); }
+}
+
+for (const id of editors) {
+  $(id).addEventListener('focus', () => {target = $(id); $('target-label').textContent = `Target: ${labels[id]}`;});
+  $(id).addEventListener('input', saveDraft);
+}
+for (const id of ['method', 'mode', 'body-type']) $(id).addEventListener('change', () => {updateMode(); saveDraft();});
+$('send').addEventListener('click', send);
+$('load').addEventListener('click', loadPage);
+$('clear').addEventListener('click', async () => {
+  try {
+    await message('reset-headers');
+    editors.forEach(id => {remember($(id)); $(id).value = '';});
+    $('response-pane').hidden = true; saveDraft(); status('Workspace cleared and header overrides reset.');
+  } catch (error) { status(error.message, true); }
+});
+$('reset-headers').addEventListener('click', async () => {
+  try {await message('reset-headers'); remember($('headers')); $('headers').value = ''; saveDraft(); status('Header overrides removed.');}
+  catch (error) {status(error.message, true);}
+});
+$('header-preset').addEventListener('change', event => {
+  const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: HackTab/0.1', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
+  const preset = presets[event.target.value];
+  if (preset) {
+    remember($('headers'));
+    $('headers').value += ($('headers').value && !$('headers').value.endsWith('\n') ? '\n' : '') + preset;
+    $('headers').focus(); saveDraft();
+  }
+  event.target.value = '';
+});
+for (const [value, label] of TRANSFORMS) $('transform').add(new Option(label, value));
+$('apply-transform').title = 'Transforms selected text, or the whole active field when nothing is selected.';
+$('apply-transform').addEventListener('click', async () => {
+  const field = target, before = field.value;
+  const start = field.selectionStart === field.selectionEnd ? 0 : field.selectionStart;
+  const end = field.selectionStart === field.selectionEnd ? before.length : field.selectionEnd;
+  try {
+    const replacement = await transform($('transform').value, before.slice(start, end));
+    if (field.value !== before) throw new Error('The field changed during transformation. Try again.');
+    remember(field); field.setSelectionRange(start, end); field.setRangeText(replacement, start, end, 'select'); field.focus(); saveDraft();
+    status(`Transformed ${labels[field.id]}.`);
+  } catch (error) {status(error.message, true);}
+});
+$('undo').addEventListener('click', () => {
+  const previous = undoStacks.get(target)?.pop();
+  if (!previous) {status('No insertion or transformation to undo in this field.'); return;}
+  target.value = previous.value; target.focus(); target.setSelectionRange(previous.start, previous.end); saveDraft(); status('Restored previous text.');
+});
+for (const name of CATEGORIES) {
+  const button = document.createElement('button'); button.textContent = name; button.setAttribute('aria-pressed', String(name === 'All'));
+  button.addEventListener('click', () => {
+    category = name;
+    for (const sibling of $('categories').children) sibling.setAttribute('aria-pressed', String(sibling === button));
+    renderPayloads();
+  });
+  $('categories').append(button);
+}
+$('search').addEventListener('input', renderPayloads);
+$('theme').addEventListener('change', () => {
+  document.documentElement.dataset.theme = $('theme').value;
+  chrome.storage.local.set({theme: $('theme').value}).catch(error => status(error.message, true));
+});
+for (const field of document.querySelectorAll('.template-options input')) field.addEventListener('input', () => {
+  clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(() => {
+    const templateOptions = {};
+    for (const input of document.querySelectorAll('.template-options input')) templateOptions[input.id] = input.type === 'checkbox' ? input.checked : input.value;
+    chrome.storage.local.set({templateOptions}).catch(error => status(error.message, true));
+  }, 200);
+});
+$('history-toggle').addEventListener('click', async () => {
+  const open = $('history-pane').hidden; $('history-pane').hidden = !open; $('history-toggle').setAttribute('aria-expanded', String(open));
+  if (open) {try {await renderHistory();} catch (error) {status(error.message, true);}}
+});
+$('clear-history').addEventListener('click', async () => {
+  try {await message('clear-history'); await renderHistory(); status('Session history cleared.');}
+  catch (error) {status(error.message, true);}
+});
+$('response-close').addEventListener('click', () => {$('response-pane').hidden = true;});
+document.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {event.preventDefault(); send();}
+});
+
+async function initialize() {
+  const [{theme = 'system', templateOptions = {}}, stored] = await Promise.all([chrome.storage.local.get(['theme', 'templateOptions']), chrome.storage.session.get(draftKey)]);
+  const appearance = ['system', 'light', 'dark'].includes(theme) ? theme : 'system';
+  $('theme').value = appearance; document.documentElement.dataset.theme = appearance;
+  for (const [id, value] of Object.entries(templateOptions)) {
+    const input = $(id);
+    if (input?.closest('.template-options')) {if (input.type === 'checkbox') input.checked = !!value; else input.value = value;}
+  }
+  if (stored[draftKey]) {writeRequest(stored[draftKey]); $('scratch').value = stored[draftKey].scratch || '';}
+  else if (tabId >= 0) await loadPage();
+  if (tabId < 0) status('Open a page’s DevTools and select the HackTab panel.', true);
+  updateMode(); renderPayloads(); document.documentElement.dataset.ready = 'true';
+}
+initialize().catch(error => status(error.message, true));

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "HackTab",
+  "version": "0.1.0",
+  "description": "A focused DevTools workspace for building requests, transforming text, and composing security test payloads.",
+  "minimum_chrome_version": "120",
+  "icons": {"48": "assets/logo.png"},
+  "devtools_page": "devtools.html",
+  "background": {"service_worker": "src/background.js", "type": "module"},
+  "permissions": ["tabs", "storage", "scripting", "webRequest", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'"}
+}

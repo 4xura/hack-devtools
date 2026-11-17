@@ -1,0 +1,9 @@
+{
+  "name": "hacktab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HackTab DevTools extension",
+  "scripts": {"test": "node --test tests/core.test.js", "test:browser": "node tests/browser.test.js", "check": "node scripts/check.js", "package": "node scripts/package.js"},
+  "engines": {"node": ">=22"}
+}
