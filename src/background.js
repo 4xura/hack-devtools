@@ -3,6 +3,7 @@ import {validateRequest, parseForm, normalizeUrl, editableHeaders, parseHeaders}
 const tabQueues = new Map();
 let fetchQueue = Promise.resolve();
 let activeFetchCapture = null;
+let activeRedirectCapture = null;
 const FETCH_RULE_ID = 2147483647;
 const sessionKey = (kind, tabId) => `${kind}:${tabId}`;
 
@@ -85,12 +86,22 @@ async function fetchRequest(request, captureHeaders = false) {
   await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [FETCH_RULE_ID], addRules: headers.length ? [rule] : []});
   const started = performance.now();
   if (captureHeaders) activeFetchCapture = {headers: []};
+  if (request.pauseRedirects) {
+    const networkUrl = new URL(request.url);
+    networkUrl.hash = '';
+    activeRedirectCapture = {url: networkUrl.href, hop: null};
+  }
   try {
     const response = await fetch(request.url, {
       method: request.method,
       ...(hasBody ? {body: request.body || ''} : {}),
-      credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(30000)
+      credentials: 'include', cache: 'no-store', redirect: request.pauseRedirects ? 'manual' : 'follow', signal: AbortSignal.timeout(30000)
     });
+    if (response.type === 'opaqueredirect') {
+      const hop = activeRedirectCapture?.hop;
+      if (!hop?.location) throw new Error('Chrome detected a redirect but did not expose its Location.');
+      return {mode:'fetch', manualRedirect:true, url:request.url, status:hop.statusCode, statusText:hop.statusText, location:hop.location, headers:hop.headers, contentType:'', redirected:false, duration:Math.round(performance.now()-started), body:'', truncated:false};
+    }
     if (captureHeaders) {
       await response.body?.cancel();
       const headersText = editableHeaders(activeFetchCapture.headers);
@@ -101,6 +112,7 @@ async function fetchRequest(request, captureHeaders = false) {
     return {mode: 'fetch', url: response.url, status: response.status, statusText: response.statusText, contentType: response.headers.get('content-type') || '', redirected: response.redirected, headers: [...response.headers].map(([name, value]) => `${name}: ${value}`).join('\n'), duration: Math.round(performance.now() - started), ...preview};
   } finally {
     activeFetchCapture = null;
+    activeRedirectCapture = null;
     await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [FETCH_RULE_ID]});
   }
 }
@@ -209,6 +221,16 @@ chrome.webRequest.onSendHeaders.addListener(details => {
     })).catch(() => {});
   }
 }, {urls: ['http://*/*', 'https://*/*'], types: ['main_frame', 'xmlhttprequest']}, ['requestHeaders', 'extraHeaders']);
+
+chrome.webRequest.onHeadersReceived.addListener(details => {
+  if (!activeRedirectCapture || details.tabId !== -1 || details.initiator !== chrome.runtime.getURL('').slice(0,-1)) return;
+  const observedUrl = new URL(details.url);
+  observedUrl.hash = '';
+  if (observedUrl.href !== activeRedirectCapture.url) return;
+  if (![301,302,303,307,308].includes(details.statusCode)) return;
+  const location = details.responseHeaders?.find(header => header.name.toLowerCase() === 'location')?.value;
+  activeRedirectCapture.hop = {statusCode: details.statusCode, statusText: details.statusLine?.replace(/^HTTP\/\S+\s+\d+\s*/, '') || '', location, headers: (details.responseHeaders || []).map(({name,value}) => `${name}: ${value ?? ''}`).join('\n')};
+}, {urls: ['http://*/*','https://*/*'], types: ['xmlhttprequest']}, ['responseHeaders','extraHeaders']);
 
 chrome.tabs.onRemoved.addListener(tabId => {
   chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [tabId + 1]}).catch(() => {});

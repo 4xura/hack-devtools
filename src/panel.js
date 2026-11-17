@@ -1,4 +1,4 @@
-import {columnList, interpolate, validateRequest, normalizeUrl, mergeHeaders, resolveFollowUp, readResponseField} from './core.js';
+import {columnList, interpolate, validateRequest, normalizeUrl, mergeHeaders, resolveFollowUp, readResponseField, nextRedirectRequest} from './core.js';
 import {TRANSFORMS, transform} from './transforms.js';
 import {PAYLOADS, CATEGORIES, searchPayloads} from './payloads.js';
 
@@ -9,6 +9,7 @@ const editors = ['url', 'body', 'headers', 'scratch'];
 const labels = {url: 'URL', body: 'request body', headers: 'headers', scratch: 'scratchpad'};
 let target = $('url'), category = 'All';
 let rootResponse = null, displayedResponse = null, polling = false;
+let pendingRedirect = null;
 const undoStacks = new WeakMap();
 let draftTimer, settingsTimer;
 
@@ -24,12 +25,13 @@ async function message(action, extra = {}) {
   return response.result;
 }
 function readRequest() {
-  return {tabId, url: $('url').value, method: $('method').value, mode: $('mode').value, bodyType: $('body-type').value, body: $('body').value, headersText: $('headers').value};
+  return {tabId, url: $('url').value, method: $('method').value, mode: $('mode').value, bodyType: $('body-type').value, body: $('body').value, headersText: $('headers').value, pauseRedirects: $('pause-redirects').checked};
 }
 function writeRequest(request) {
   for (const [field, key] of [['url', 'url'], ['method', 'method'], ['mode', 'mode'], ['body-type', 'bodyType'], ['body', 'body'], ['headers', 'headersText']]) {
     if (request[key] !== undefined) $(field).value = request[key];
   }
+  $('pause-redirects').checked = !!request.pauseRedirects;
   updateMode(); saveDraft();
 }
 function saveDraft() {
@@ -41,6 +43,8 @@ function saveDraft() {
 }
 function updateMode() {
   const navigation = $('mode').value === 'navigate';
+  $('pause-redirects').disabled = navigation;
+  if (navigation) $('pause-redirects').checked = false;
   const method = $('method').value;
   $('body').disabled = method === 'GET' || method === 'HEAD';
   $('mode-hint').textContent = navigation ? 'GET or form POST in the inspected page' : 'Raw request with a text response preview · 30s timeout';
@@ -132,10 +136,14 @@ async function send() {
   if ($('send').disabled) return;
   try {
     const request = validateRequest(readRequest());
+    pendingRedirect = null;
+    $('follow-pane').open = false;
+    $('follow-url').value = '';
     $('send').disabled = true; status('Sending request…', false, true);
     const result = await message('execute', {request});
     if (result.mode === 'fetch') {
       rootResponse = result;
+      pendingRedirect = result.manualRedirect ? {request, result} : null;
       showResponse(result);
       suggestFollowUp(result);
       $('response-pane').scrollIntoView({block: 'nearest'});
@@ -151,11 +159,48 @@ function showResponse(result, extracted = null) {
   $('response-pane').hidden = false;
   $('response-meta').textContent = `${result.status} ${result.statusText} · ${result.duration} ms${result.truncated ? ' · preview limited to 1 MiB' : ''}${result.redirected ? ' · redirected' : ''}`;
   $('open-destination').hidden = !result.redirected;
+  $('open-result').hidden = !!result.manualRedirect;
+  $('redirect-pane').hidden = !result.manualRedirect;
+  $('follow-pane').hidden = !!result.manualRedirect;
+  $('response-body').hidden = !!result.manualRedirect;
+  if (result.manualRedirect) {
+    const next = nextRedirectRequest(pendingRedirect.request, result);
+    $('redirect-status').textContent = `${result.status} ${result.statusText}`;
+    $('redirect-method').textContent = next.method;
+    $('redirect-url').textContent = next.url;
+    $('redirect-tab').disabled = next.method !== 'GET';
+    $('redirect-tab').title = next.method === 'GET' ? 'Continue this hop in the inspected tab' : 'Navigation cannot preserve this method and body. Follow with Fetch.';
+  }
   $('response-url').textContent = result.url;
   $('response-headers').textContent = result.headers;
   $('response-body').value = result.body;
   $('result-pane').hidden = extracted === null;
   $('result-text').textContent = extracted ?? '';
+}
+
+async function continueRedirect(delivery) {
+  if (!pendingRedirect) return;
+  const button = delivery === 'fetch' ? $('redirect-fetch') : $('redirect-tab');
+  try {
+    const next = nextRedirectRequest(pendingRedirect.request, pendingRedirect.result);
+    if (delivery === 'navigate' && next.method !== 'GET') throw new Error(`${next.status || 'This'} redirect preserves ${next.method}; continue with Fetch.`);
+    button.disabled = true;
+    status(`Following redirect with ${delivery === 'fetch' ? 'Fetch' : 'tab navigation'}…`, false, true);
+    const request = {...next, mode: delivery, pauseRedirects: delivery === 'fetch'};
+    const result = await message('execute', {request});
+    pendingRedirect = result.manualRedirect ? {request, result} : null;
+    if (delivery === 'fetch') {
+      rootResponse = result;
+      showResponse(result);
+      suggestFollowUp(result);
+      status(result.manualRedirect ? `Paused at ${result.status}.` : `Response ${result.status} received.`);
+    } else {
+      $('redirect-pane').hidden = true;
+      status('Redirect opened in the inspected tab.');
+    }
+    if (!$('history-pane').hidden) await renderHistory();
+  } catch (error) { status(error.message, true); }
+  finally { button.disabled = false; }
 }
 
 function suggestFollowUp(result) {
@@ -226,13 +271,14 @@ for (const id of editors) {
   $(id).addEventListener('input', saveDraft);
 }
 for (const id of ['method', 'mode', 'body-type']) $(id).addEventListener('change', () => {updateMode(); saveDraft();});
+$('pause-redirects').addEventListener('change', saveDraft);
 $('send').addEventListener('click', send);
 $('load').addEventListener('click', loadPage);
 $('clear').addEventListener('click', async () => {
   try {
     await message('reset-headers');
     editors.forEach(id => {remember($(id)); $(id).value = '';});
-    $('response-pane').hidden = true; rootResponse = null; displayedResponse = null; saveDraft(); status('Workspace cleared and header overrides reset.');
+    $('response-pane').hidden = true; rootResponse = null; displayedResponse = null; pendingRedirect = null; saveDraft(); status('Workspace cleared and header overrides reset.');
   } catch (error) { status(error.message, true); }
 });
 $('reset-headers').addEventListener('click', async () => {
@@ -308,6 +354,8 @@ $('clear-history').addEventListener('click', async () => {
   catch (error) {status(error.message, true);}
 });
 $('response-close').addEventListener('click', () => {$('response-pane').hidden = true;});
+$('redirect-fetch').addEventListener('click', () => continueRedirect('fetch'));
+$('redirect-tab').addEventListener('click', () => continueRedirect('navigate'));
 $('follow-once').addEventListener('click', () => followRequest(false));
 $('follow-poll').addEventListener('click', () => followRequest(true));
 $('follow-stop').addEventListener('click', () => {polling = false; status('Polling stopped.');});

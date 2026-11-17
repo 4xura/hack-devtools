@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceSelection, validateRequest, editableHeaders, mergeHeaders, resolveFollowUp, readResponseField} from '../src/core.js';
+import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceSelection, validateRequest, editableHeaders, mergeHeaders, resolveFollowUp, readResponseField, nextRedirectRequest} from '../src/core.js';
 import {transform, md5} from '../src/transforms.js';
 import {PAYLOADS, searchPayloads} from '../src/payloads.js';
 
@@ -82,4 +82,19 @@ test('follow-up URLs resolve JSON fields within the response origin', () => {
   assert.throws(()=>resolveFollowUp('/api/jobs/{{response.missing}}',response));
   assert.equal(readResponseField('{"state":"ready","result":{"receipt_text":"hello"}}','result.receipt_text'),'hello');
   assert.throws(()=>readResponseField('{}','receipt_text'));
+});
+test('redirect hops preserve method semantics and avoid cross-origin credential forwarding', () => {
+  const request={url:'https://example.com/post',method:'POST',body:'{"x":1}',bodyType:'json',headersText:'Content-Type: application/json\nAuthorization: Bearer secret\nCookie: sid=abc\nX-Probe: yes',pauseRedirects:true};
+  const hop=(status,location)=>({manualRedirect:true,status,location});
+  const moved=nextRedirectRequest(request,hop(302,'/result'));
+  assert.equal(moved.method,'GET'); assert.equal(moved.body,''); assert.equal(moved.url,'https://example.com/result');
+  assert(!/content-type/i.test(moved.headersText));
+  const preserved=nextRedirectRequest(request,hop(307,'/result'));
+  assert.equal(preserved.method,'POST'); assert.equal(preserved.body,request.body);
+  const external=nextRedirectRequest(request,hop(302,'https://other.example/result'));
+  assert(!/authorization|cookie/i.test(external.headersText));
+  assert.match(external.headersText,/X-Probe: yes/);
+  assert.equal(nextRedirectRequest({...request,method:'PUT'},hop(303,'/result')).method,'GET');
+  assert.throws(()=>nextRedirectRequest(request,hop(302,'javascript:alert(1)')));
+  assert.throws(()=>nextRedirectRequest(request,hop(302,'https://user:pass@example.com/result')));
 });

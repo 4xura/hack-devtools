@@ -21,7 +21,10 @@ const server = http.createServer((request, response) => {
     if (request.url === '/api/check-in') {response.writeHead(202,{'Content-Type':'application/json'}); response.end(JSON.stringify({job_id:'local-job-1',state:'queued'})); return;}
     if (request.url === '/api/print-jobs/local-job-1') {printPolls++; response.setHeader('Content-Type','application/json'); response.end(JSON.stringify(printPolls>=2?{state:'ready',receipt_text:'ROOM 608\nGUEST Lee'}:{state:'queued'})); return;}
     if (request.url === '/redirect') {response.writeHead(302,{Location:'http://localhost:'+server.address().port+'/redirected'}); response.end(); return;}
-    if (request.url === '/redirect-post') {response.writeHead(302,{Location:'/redirect-post-final'}); response.end(); return;}
+    if (request.url === '/redirect-post') {response.writeHead(302,{Location:'/redirect-post-final','Set-Cookie':'hop=one; Path=/'}); response.end(); return;}
+    if (request.url === '/redirect-307') {response.writeHead(307,{Location:'/redirect-307-final'}); response.end(); return;}
+    if (request.url === '/chain/start') {response.writeHead(302,{Location:'/chain/middle'}); response.end(); return;}
+    if (request.url === '/chain/middle') {response.writeHead(302,{Location:'/chain/end'}); response.end(); return;}
     if (request.url === '/large') {response.setHeader('Content-Type','text/plain'); response.end('x'.repeat(1048600)); return;}
     if (request.url === '/json') {response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({received:body})); return;}
     response.setHeader('Content-Type','text/html; charset=utf-8');
@@ -122,6 +125,12 @@ async function run(){
   assert.equal(postRedirect.redirected,true);
   assert.equal(postRedirect.url,base+'/redirect-post-final');
   assert.equal((await getRequest('/redirect-post-final')).method,'GET');
+  const paused=await execute({url:base+'/redirect-post',mode:'fetch',method:'POST',bodyType:'json',body:'{"probe":true}',headersText:'Content-Type: application/json',pauseRedirects:true});
+  assert.equal(paused.status,302); assert.equal(paused.manualRedirect,true); assert.equal(paused.location,'/redirect-post-final');
+  assert(/location: \/redirect-post-final/i.test(paused.headers));
+  assert(/set-cookie: hop=one/i.test(paused.headers));
+  const fragmentPaused=await execute({url:base+'/redirect-post#section',mode:'fetch',method:'POST',bodyType:'json',body:'{"probe":true}',headersText:'Content-Type: application/json',pauseRedirects:true});
+  assert.equal(fragmentPaused.status,302); assert.equal(fragmentPaused.location,'/redirect-post-final');
   const [first,second]=await Promise.all([
     execute({url:base+'/parallel-one',mode:'fetch',headersText:'X-Probe: one'}),
     execute({url:base+'/parallel-two',mode:'fetch',headersText:'X-Probe: two'})
@@ -267,6 +276,55 @@ async function run(){
   assert(Number.isInteger(destinationTab));
   await evaluate(panel.sessionId,`chrome.tabs.remove(${destinationTab})`);
   console.log('PASS: HTTP redirect exposes its final URL and opens it in a browser tab');
+
+  await call('Page.bringToFront',{},panel.sessionId);
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/redirect-post')});set('method','POST');set('mode','fetch');set('body-type','json');set('body','{"step":1}');set('headers','Content-Type: application/json');
+    const pause=document.getElementById('pause-redirects');pause.checked=true;pause.dispatchEvent(new Event('change'));
+    document.getElementById('send').click();
+  })()`);
+  await until(()=>evaluate(panel.sessionId,"!document.getElementById('redirect-pane').hidden"),'manual 302 panel');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('follow-pane').hidden"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('open-result').hidden"),true);
+  const redirectShot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
+  fs.writeFileSync(path.join(output,'hacktab-manual-redirect.png'),Buffer.from(redirectShot.data,'base64'));
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-method').textContent"),'GET');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-url').textContent"),base+'/redirect-post-final');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-tab').disabled"),false);
+  await evaluate(panel.sessionId,"document.getElementById('redirect-tab').click()");
+  await until(()=>evaluate(inspected.sessionId,`location.href===${JSON.stringify(base+'/redirect-post-final')}`),'manual 302 tab destination');
+  console.log('PASS: Manual POST 302 exposes Location, then navigates the inspected tab with GET');
+
+  await call('Page.bringToFront',{},panel.sessionId);
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/redirect-307')});set('method','POST');set('mode','fetch');set('body-type','json');set('body','{"step":307}');set('headers','Content-Type: application/json');
+    const pause=document.getElementById('pause-redirects');pause.checked=true;pause.dispatchEvent(new Event('change'));
+    document.getElementById('send').click();
+  })()`);
+  await until(()=>evaluate(panel.sessionId,"!document.getElementById('redirect-pane').hidden && document.getElementById('redirect-status').textContent.startsWith('307')"),'manual 307 panel');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-method').textContent"),'POST');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-tab').disabled"),true);
+  await evaluate(panel.sessionId,"document.getElementById('redirect-fetch').click()");
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('response-url').textContent.endsWith('/redirect-307-final')"),'manual 307 final');
+  const preservedRequest=await getRequest('/redirect-307-final');
+  assert.equal(preservedRequest.method,'POST'); assert.equal(preservedRequest.body,'{"step":307}');
+  console.log('PASS: Manual 307 requires Fetch and preserves POST body');
+
+  await call('Page.bringToFront',{},panel.sessionId);
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/chain/start')});set('method','GET');set('mode','fetch');set('body-type','text');set('body','');set('headers','');
+    const pause=document.getElementById('pause-redirects');pause.checked=true;pause.dispatchEvent(new Event('change'));
+    document.getElementById('send').click();
+  })()`);
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('redirect-url').textContent.endsWith('/chain/middle') && !document.getElementById('redirect-pane').hidden"),'first chain hop');
+  await evaluate(panel.sessionId,"document.getElementById('redirect-fetch').click()");
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('redirect-url').textContent.endsWith('/chain/end') && !document.getElementById('redirect-pane').hidden"),'second chain hop');
+  await evaluate(panel.sessionId,"document.getElementById('redirect-tab').click()");
+  await until(()=>evaluate(inspected.sessionId,`location.href===${JSON.stringify(base+'/chain/end')}`),'chain tab destination');
+  console.log('PASS: Multi-hop redirect chooses Fetch, then tab navigation');
 
   if (process.env.HACKTAB_LIVE_ORIGIN) {
     const origin=process.env.HACKTAB_LIVE_ORIGIN.replace(/\/$/,'');

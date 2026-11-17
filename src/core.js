@@ -99,8 +99,26 @@ export function validateRequest(request) {
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(request.method)) throw new Error('Unsupported HTTP method.');
   if (!['navigate', 'fetch'].includes(request.mode)) throw new Error('Unknown request mode.');
   if (!['form', 'json', 'xml', 'text'].includes(request.bodyType)) throw new Error('Unknown body type.');
+  if (request.pauseRedirects !== undefined && typeof request.pauseRedirects !== 'boolean') throw new Error('Invalid redirect setting.');
+  if (request.mode === 'navigate' && request.pauseRedirects) throw new Error('Pause on redirects requires Fetch response delivery.');
   if (request.mode === 'navigate' && (request.method !== 'GET' && (request.method !== 'POST' || request.bodyType !== 'form'))) throw new Error('Navigate supports GET and form POST. Select Fetch for raw bodies and other methods.');
   if (request.bodyType === 'json' && !['GET', 'HEAD'].includes(request.method)) JSON.parse(request.body || '');
   if (!Number.isInteger(request.tabId) || request.tabId < 0) throw new Error('Open HackTab from the inspected page’s DevTools.');
   return {...request, url, headers: parseHeaders(request.headersText || '')};
+}
+
+export function nextRedirectRequest(previous, result) {
+  if (!result.manualRedirect || ![301,302,303,307,308].includes(result.status) || !result.location) throw new Error('No redirect hop is available.');
+  const url = new URL(result.location, previous.url);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('The redirect target requires HTTP or HTTPS.');
+  if (url.username || url.password) throw new Error('The redirect target embeds credentials in its URL.');
+  let method = previous.method;
+  if (([301,302].includes(result.status) && method === 'POST') || (result.status === 303 && !['GET','HEAD'].includes(method))) method = 'GET';
+  const headers = parseHeaders(previous.headersText || '').filter(header => {
+    const name = header.name.toLowerCase();
+    if (url.origin !== new URL(previous.url).origin && ['authorization','cookie','proxy-authorization'].includes(name)) return false;
+    if (method !== previous.method && ['content-type','content-encoding'].includes(name)) return false;
+    return true;
+  });
+  return {...previous, url: url.href, method, body: method === previous.method ? previous.body : '', bodyType: method === previous.method ? previous.bodyType : 'text', headersText: headers.map(({name,value})=>`${name}: ${value}`).join('\n'), pauseRedirects: true};
 }
