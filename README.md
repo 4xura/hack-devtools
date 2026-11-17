@@ -14,6 +14,8 @@ Chrome 120 or newer is required. The extension runs directly from source; no bui
 
 - **Navigate tab** sends GET or form POST requests in the inspected tab.
 - **Fetch response** supports GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, with form, JSON, XML, or plain text bodies. Responses appear as text, with status, timing, and headers. Requests time out after 30 seconds; previews are limited to 1 MiB.
+- **Follow-up request** can build a same-origin GET URL from a JSON response using fields such as `{{response.job_id}}`. Send it once or poll every 400 ms until a configurable state field reaches its ready value, up to 30 checks. The configured result field appears below the response and can be opened in a separate HackTab result tab.
+- **Open destination (GET)** appears when Fetch follows an HTTP redirect. It opens the final URL with a browser GET. **Open result in tab** displays the response body as inert text, including HTML source, without running scripts from the response.
 - **Header overrides** accept one `Name: value` per line. **Fetch** performs a background GET of the inspected page and replaces the editor with the outgoing request headers Chrome exposes. It keeps the tab in place and does not replay POST bodies. Captured page authentication and content negotiation are reused where available. Browser framing, compression, and `Sec-*` context headers are omitted from the editable list. **Reset** clears the editor and active navigation overrides. Presets cover Referer, User-Agent, Cookie, Authorization, Content-Type, and X-Forwarded-For.
 - **Load page** restores the inspected URL and its latest captured navigation body. POST capture covers requests made while the extension is enabled; it does not recover requests from before installation.
 - **Scratchpad** provides a separate text editor. Transforms use selected text, or the whole active field when nothing is selected. Payload insertion replaces the selection or inserts at the cursor. **Undo** restores the previous insertion or transformation in that field.
@@ -22,6 +24,12 @@ Chrome 120 or newer is required. The extension runs directly from source; no bui
 Navigation header overrides apply only to the inspected tab’s top-level requests to the configured destination hostname. They remain active until the next Navigate request replaces them, **Reset** is pressed, the workspace is cleared, or the tab closes. Fetch overrides apply only during that request. Cross-host redirects do not inherit custom overrides.
 
 Form bodies preserve repeated names, empty values, Unicode, and standard `+`/percent encoding. Navigate POST uses a browser form; use Fetch when exact JSON, XML, or text bodies are needed. Browser policies, network restrictions, cookies, and page form policies can affect requests. Response headers reflect what Chrome exposes to the extension.
+
+Opening a redirected destination performs a new GET. If the final response depends on a POST body, use the captured response or a configured follow-up request instead.
+
+### Async job example
+
+The reservation example uses an asynchronous job rather than an HTTP redirect. Send the lookup request, then send a JSON POST to `/api/check-in` with `reservation`, `family_name`, and `receipt_layout`. Its `202` response contains `job_id`. HackTab suggests `/api/print-jobs/{{response.job_id}}`; click **Poll until ready**. The default state and result fields, `state=ready` and `receipt_text`, display the finished receipt. **Open result in tab** shows the receipt in a separate tab. The site's own `/reservations` page updates its receipt area only when its JavaScript form handler runs.
 
 ## Payload library
 
@@ -37,7 +45,7 @@ Template options configure column count, database, table, column names, file pat
 
 Appearance defaults to **System** and follows OS color preferences. **Light** and **Dark** override that choice. Appearance and template options persist locally.
 
-Drafts, scratchpads, captured bodies, and the latest 30 successful requests per tab are kept in browser session storage and cleared when the browser session ends. Closing a tab removes its session data. The extension has no telemetry, licensing service, remote scripts, or automatic update endpoint. Network requests are initiated through the request workspace.
+Drafts, scratchpads, captured bodies, and the latest 30 successful requests per tab are kept in browser session storage and cleared when the browser session ends. Follow-up polling does not add each check to history. Result tabs use session storage and their stored response is removed when the tab closes. The extension has no telemetry, licensing service, remote scripts, or automatic update endpoint. Network requests are initiated through the request workspace.
 
 ## Development
 
@@ -51,5 +59,7 @@ npm run package
 ```
 
 Browser tests use an isolated Chrome profile and a loopback HTTP server. Set `CHROME_PATH` if Chrome is not at its standard Windows location. Test profiles and screenshots are written under `work/`. Packaging writes `dist/hacktab-0.1.0.zip` and excludes tests, development files, and Git metadata.
+
+For an authorized live environment that implements the reservation job example, set `HACKTAB_LIVE_ORIGIN` before `npm run test:browser` to exercise lookup, check-in, and job polling in addition to the local fixtures.
 
 This repository is private. Distribution is reserved for a future release.

@@ -21,6 +21,8 @@ Navigation uses `tabs.update` for GET and `scripting.executeScript` with structu
 
 Header modifications use declarative session rules. Navigation rules are constrained by tab, destination hostname, and main-frame resource type. Fetch rules use the extension initiator, destination hostname, and request resource type, and are removed in a `finally` block. Automatic redirects can be followed by Chrome; overrides do not match other destination hostnames. Fetch streams responses into a bounded text preview.
 
+The panel resolves follow-up URL templates from the initial JSON response. It restricts these GETs to the response origin and passes them through the same serialized Fetch queue. Polling stays in the panel so users can stop it. It stops on the configured ready state, a failed state, or after 30 checks. Result tabs read a session-scoped text snapshot and render it through `textContent`; closing the tab deletes that snapshot. A redirect destination can be opened separately with a browser GET.
+
 Top-level navigation request bodies and outgoing headers are captured with the read-only webRequest API. The header editor’s Fetch action runs a background GET through the serialized Fetch queue, observes its final outgoing headers with `onSendHeaders` and `extraHeaders`, and returns an editable subset. It does not navigate the tab, save a replay-history entry, or reuse a POST body. Response headers remain in the separate response preview.
 
 Per-tab session state survives service worker suspension. Tab closure removes captured data, drafts, history, and header rules.

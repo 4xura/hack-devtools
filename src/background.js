@@ -98,7 +98,7 @@ async function fetchRequest(request, captureHeaders = false) {
       return {url: response.url, headersText};
     }
     const preview = await readPreview(response);
-    return {mode: 'fetch', url: response.url, status: response.status, statusText: response.statusText, headers: [...response.headers].map(([name, value]) => `${name}: ${value}`).join('\n'), duration: Math.round(performance.now() - started), ...preview};
+    return {mode: 'fetch', url: response.url, status: response.status, statusText: response.statusText, contentType: response.headers.get('content-type') || '', redirected: response.redirected, headers: [...response.headers].map(([name, value]) => `${name}: ${value}`).join('\n'), duration: Math.round(performance.now() - started), ...preview};
   } finally {
     activeFetchCapture = null;
     await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [FETCH_RULE_ID]});
@@ -140,11 +140,33 @@ async function execute(data) {
   });
 }
 
+async function followUp(data) {
+  const request = validateRequest(data);
+  if (request.method !== 'GET' || request.mode !== 'fetch') throw new Error('Follow-up requests must be Fetch GET requests.');
+  return serial(tabQueues, request.tabId, async () => {
+    const job = fetchQueue.catch(() => {}).then(() => fetchRequest(request));
+    fetchQueue = job;
+    return job;
+  });
+}
+
+async function openResult(data) {
+  if (!data || typeof data.body !== 'string' || data.body.length > 1048576 || typeof data.url !== 'string') throw new Error('No response is available to open.');
+  const source = normalizeUrl(data.url);
+  const key = `result:${crypto.randomUUID()}`;
+  await chrome.storage.session.set({[key]: {source, body: data.body, contentType: String(data.contentType || ''), status: data.status, created: Date.now()}});
+  const tab = await chrome.tabs.create({url: chrome.runtime.getURL(`viewer.html#${key}`), active: true});
+  await chrome.storage.session.set({[`viewer:${tab.id}`]: key});
+  return {tabId: tab.id};
+}
+
 async function handle(message) {
   const tabId = message.tabId ?? message.request?.tabId;
   if (!Number.isInteger(tabId) || tabId < 0) throw new Error('No inspected tab is available.');
   switch (message.action) {
     case 'fetch-headers': return fetchPageHeaders(tabId);
+    case 'follow-up': return followUp(message.request);
+    case 'open-result': return openResult(message.result);
     case 'execute': return execute(message.request);
     case 'load': {
       const tab = await chrome.tabs.get(tabId);
@@ -190,5 +212,9 @@ chrome.webRequest.onSendHeaders.addListener(details => {
 
 chrome.tabs.onRemoved.addListener(tabId => {
   chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [tabId + 1]}).catch(() => {});
+  chrome.storage.session.get(`viewer:${tabId}`).then(async stored => {
+    const key = stored[`viewer:${tabId}`];
+    if (key) await chrome.storage.session.remove([`viewer:${tabId}`, key]);
+  }).catch(() => {});
   serial(tabQueues, `capture:${tabId}`, () => chrome.storage.session.remove(['capture', 'page-headers', 'history', 'draft'].map(kind => sessionKey(kind, tabId)))).catch(() => {});
 });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceSelection, validateRequest, editableHeaders, mergeHeaders} from '../src/core.js';
+import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceSelection, validateRequest, editableHeaders, mergeHeaders, resolveFollowUp, readResponseField} from '../src/core.js';
 import {transform, md5} from '../src/transforms.js';
 import {PAYLOADS, searchPayloads} from '../src/payloads.js';
 
@@ -72,4 +72,14 @@ test('captured headers become editable without browser framing or duplicates', (
   const text = editableHeaders([{name:'Host',value:'example.com'},{name:':method',value:'GET'},{name:'Sec-Fetch-Site',value:'none'},{name:'User-Agent',value:'Chrome'},{name:'Cookie',value:'session=test'},{name:'X-Test',value:'one'},{name:'x-test',value:'two'}]);
   assert.deepEqual(parseHeaders(text),[{name:'User-Agent',value:'Chrome'},{name:'Cookie',value:'session=test'},{name:'x-test',value:'two'}]);
   assert.equal(mergeHeaders('X-Test: one\nCookie: session=test','x-test: two'), 'x-test: two\nCookie: session=test');
+});
+test('follow-up URLs resolve JSON fields within the response origin', () => {
+  const response={url:'https://example.com/api/check-in',body:JSON.stringify({job_id:'a/b',status_url:'/api/jobs/a%2Fb',nested:{token:'x y'}})};
+  assert.equal(resolveFollowUp('/api/jobs/{{response.job_id}}',response),'https://example.com/api/jobs/a%2Fb');
+  assert.equal(resolveFollowUp('{{response.status_url}}',response),'https://example.com/api/jobs/a%2Fb');
+  assert.equal(resolveFollowUp('/api/jobs?token={{response.nested.token}}',response),'https://example.com/api/jobs?token=x%20y');
+  assert.throws(()=>resolveFollowUp('https://other.example/api/jobs/{{response.job_id}}',response));
+  assert.throws(()=>resolveFollowUp('/api/jobs/{{response.missing}}',response));
+  assert.equal(readResponseField('{"state":"ready","result":{"receipt_text":"hello"}}','result.receipt_text'),'hello');
+  assert.throws(()=>readResponseField('{}','receipt_text'));
 });

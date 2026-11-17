@@ -1,4 +1,4 @@
-import {columnList, interpolate, validateRequest, normalizeUrl, mergeHeaders} from './core.js';
+import {columnList, interpolate, validateRequest, normalizeUrl, mergeHeaders, resolveFollowUp, readResponseField} from './core.js';
 import {TRANSFORMS, transform} from './transforms.js';
 import {PAYLOADS, CATEGORIES, searchPayloads} from './payloads.js';
 
@@ -8,6 +8,7 @@ const draftKey = `draft:${tabId}`;
 const editors = ['url', 'body', 'headers', 'scratch'];
 const labels = {url: 'URL', body: 'request body', headers: 'headers', scratch: 'scratchpad'};
 let target = $('url'), category = 'All';
+let rootResponse = null, displayedResponse = null, polling = false;
 const undoStacks = new WeakMap();
 let draftTimer, settingsTimer;
 
@@ -133,15 +134,83 @@ async function send() {
     $('send').disabled = true; status('Sending request…', false, true);
     const result = await message('execute', {request});
     if (result.mode === 'fetch') {
-      $('response-pane').hidden = false;
-      $('response-meta').textContent = `${result.status} ${result.statusText} · ${result.duration} ms${result.truncated ? ' · preview limited to 1 MiB' : ''}`;
-      $('response-headers').textContent = result.headers;
-      $('response-body').value = result.body;
+      rootResponse = result;
+      showResponse(result);
+      suggestFollowUp(result);
+      $('response-pane').scrollIntoView({block: 'nearest'});
       status(`Response ${result.status} received.`);
     } else status(result.message);
     if (!$('history-pane').hidden) await renderHistory();
   } catch (error) { status(error.message, true); }
   finally { $('send').disabled = false; }
+}
+
+function showResponse(result, extracted = null) {
+  displayedResponse = extracted === null ? result : {...result, body: extracted, contentType: 'text/plain; charset=utf-8'};
+  $('response-pane').hidden = false;
+  $('response-meta').textContent = `${result.status} ${result.statusText} · ${result.duration} ms${result.truncated ? ' · preview limited to 1 MiB' : ''}${result.redirected ? ' · redirected' : ''}`;
+  $('open-destination').hidden = !result.redirected;
+  $('response-url').textContent = result.url;
+  $('response-headers').textContent = result.headers;
+  $('response-body').value = result.body;
+  $('result-pane').hidden = extracted === null;
+  $('result-text').textContent = extracted ?? '';
+}
+
+function suggestFollowUp(result) {
+  try {
+    const data = JSON.parse(result.body);
+    if (typeof data.status_url === 'string') $('follow-url').value = '{{response.status_url}}';
+    else if (typeof data.job_url === 'string') $('follow-url').value = '{{response.job_url}}';
+    else if (data.job_id && new URL(result.url).pathname === '/api/check-in') $('follow-url').value = '/api/print-jobs/{{response.job_id}}';
+    if ($('follow-url').value) $('follow-pane').open = true;
+  } catch { /* Non-JSON responses have no suggested follow-up. */ }
+}
+
+async function followRequest(repeat) {
+  if (polling) return;
+  try {
+    const url = resolveFollowUp($('follow-url').value, rootResponse);
+    const stateField = $('follow-state').value.trim();
+    const readyValue = $('follow-ready').value.trim();
+    const resultField = $('follow-field').value.trim();
+    if (repeat && (!stateField || !readyValue)) throw new Error('Set the state field and ready value before polling.');
+    polling = true;
+    $('follow-once').disabled = true;
+    $('follow-poll').disabled = true;
+    $('follow-stop').hidden = !repeat;
+    for (let attempt = 1; attempt <= (repeat ? 30 : 1) && polling; attempt++) {
+      status(`Follow-up GET ${attempt}${repeat ? ' / 30' : ''}…`, false, true);
+      const result = await message('follow-up', {request: {tabId, url, method: 'GET', mode: 'fetch', bodyType: 'text', body: '', headersText: $('headers').value}});
+      if (!polling) break;
+      showResponse(result);
+      if (result.status >= 400) throw new Error(`Follow-up returned HTTP ${result.status}.`);
+      if (!repeat) {
+        try {showResponse(result, readResponseField(result.body, resultField));} catch { /* The raw response remains available. */ }
+        status(`Follow-up returned ${result.status}.`);
+        break;
+      }
+      let data;
+      try { data = JSON.parse(result.body); } catch { throw new Error('Polling requires JSON responses.'); }
+      const state = stateField.split('.').reduce((item, key) => item?.[key], data);
+      if (state === undefined || state === null) throw new Error(`State field ${stateField} was not found.`);
+      if (String(state) === readyValue) {
+        showResponse(result, readResponseField(result.body, resultField));
+        $('result-pane').scrollIntoView({block: 'nearest'});
+        status('Follow-up result is ready.');
+        break;
+      }
+      if (['failed', 'error', 'cancelled'].includes(String(state).toLowerCase())) throw new Error(`Follow-up job ${state}.`);
+      if (attempt === 30) throw new Error('Follow-up did not reach the ready state after 30 checks.');
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+  } catch (error) { status(error.message, true); }
+  finally {
+    polling = false;
+    $('follow-once').disabled = false;
+    $('follow-poll').disabled = false;
+    $('follow-stop').hidden = true;
+  }
 }
 async function loadPage() {
   try {
@@ -162,7 +231,7 @@ $('clear').addEventListener('click', async () => {
   try {
     await message('reset-headers');
     editors.forEach(id => {remember($(id)); $(id).value = '';});
-    $('response-pane').hidden = true; saveDraft(); status('Workspace cleared and header overrides reset.');
+    $('response-pane').hidden = true; rootResponse = null; displayedResponse = null; saveDraft(); status('Workspace cleared and header overrides reset.');
   } catch (error) { status(error.message, true); }
 });
 $('reset-headers').addEventListener('click', async () => {
@@ -238,6 +307,23 @@ $('clear-history').addEventListener('click', async () => {
   catch (error) {status(error.message, true);}
 });
 $('response-close').addEventListener('click', () => {$('response-pane').hidden = true;});
+$('follow-once').addEventListener('click', () => followRequest(false));
+$('follow-poll').addEventListener('click', () => followRequest(true));
+$('follow-stop').addEventListener('click', () => {polling = false; status('Polling stopped.');});
+$('open-result').addEventListener('click', async () => {
+  try {
+    if (!displayedResponse) throw new Error('Send a request first.');
+    await message('open-result', {result: displayedResponse});
+    status('Result opened in a new tab.');
+  } catch (error) {status(error.message, true);}
+});
+$('open-destination').addEventListener('click', async () => {
+  try {
+    if (!displayedResponse?.redirected) throw new Error('No redirected destination is available.');
+    await chrome.tabs.create({url: normalizeUrl(displayedResponse.url), active: true});
+    status('Destination opened in a new tab.');
+  } catch (error) {status(error.message, true);}
+});
 document.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {event.preventDefault(); send();}
 });

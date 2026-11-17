@@ -57,6 +57,33 @@ export function mergeHeaders(current, additions) {
   return [...merged.values()].map(({name, value}) => `${name}: ${value}`).join('\n');
 }
 
+export function resolveFollowUp(template, response) {
+  if (!response?.url || !response?.body) throw new Error('Send a request with a JSON response first.');
+  let json;
+  try { json = JSON.parse(response.body); } catch { throw new Error('The latest response is not JSON.'); }
+  const source = template.trim();
+  const replaced = source.replace(/\{\{response\.([a-zA-Z][a-zA-Z0-9_.]*)\}\}/g, (token, path) => {
+    const value = path.split('.').reduce((item, key) => item?.[key], json);
+    if (value === null || value === undefined || typeof value === 'object') throw new Error(`Response field ${path} is missing or not a scalar.`);
+    return source === token ? String(value) : encodeURIComponent(String(value));
+  });
+  if (!replaced || /\{\{response\./.test(replaced)) throw new Error('Enter a valid follow-up URL template.');
+  const url = new URL(replaced, response.url);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Follow-up requests require HTTP or HTTPS.');
+  if (url.origin !== new URL(response.url).origin) throw new Error('Follow-up URL must use the response origin.');
+  return url.href;
+}
+
+export function readResponseField(body, path) {
+  const key = path.trim();
+  if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(key)) throw new Error('Enter a JSON field name such as receipt_text or data.result.');
+  let data;
+  try { data = JSON.parse(body); } catch { throw new Error('The follow-up response is not JSON.'); }
+  const value = key.split('.').reduce((item, part) => item?.[part], data);
+  if (value === null || value === undefined) throw new Error(`Response field ${key} was not found.`);
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
 export function columnList(count, style = 'number') {
   const size = Number(count);
   if (!Number.isInteger(size) || size < 1 || size > 100) throw new Error('Column count must be between 1 and 100.');

@@ -12,11 +12,14 @@ fs.mkdirSync(output, {recursive:true});
 const profile = path.join(output, 'chrome-' + randomUUID());
 const chromePath = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const requests = [], exceptions = [];
+let printPolls=0;
 const server = http.createServer((request, response) => {
   let body = '';
   request.on('data', data => body += data);
   request.on('end', () => {
     requests.push({url:request.url, method:request.method, headers:request.headers, body});
+    if (request.url === '/api/check-in') {response.writeHead(202,{'Content-Type':'application/json'}); response.end(JSON.stringify({job_id:'local-job-1',state:'queued'})); return;}
+    if (request.url === '/api/print-jobs/local-job-1') {printPolls++; response.setHeader('Content-Type','application/json'); response.end(JSON.stringify(printPolls>=2?{state:'ready',receipt_text:'ROOM 608\nGUEST Lee'}:{state:'queued'})); return;}
     if (request.url === '/redirect') {response.writeHead(302,{Location:'http://localhost:'+server.address().port+'/redirected'}); response.end(); return;}
     if (request.url === '/large') {response.setHeader('Content-Type','text/plain'); response.end('x'.repeat(1048600)); return;}
     if (request.url === '/json') {response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({received:body})); return;}
@@ -214,7 +217,72 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.documentElement.dataset.theme"),'light');
   console.log('PASS: Send-button XML request, inert response rendering, history UI, and persisted theme/draft');
 
-  await evaluate(panel.sessionId,"document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'));document.getElementById('scratch').value='Select text, then choose a payload or transformation.';");
+  await call('Page.bringToFront',{},panel.sessionId);
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/api/check-in')});set('method','POST');set('mode','fetch');set('body-type','json');
+    set('body','{"reservation":"A7K-204","family_name":"Lee","receipt_layout":"standard.ticket"}');
+    set('headers','Content-Type: application/json');document.getElementById('send').click();
+  })()`);
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('response-meta').textContent.includes('202')"),'queued job response');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('follow-url').value"),'/api/print-jobs/{{response.job_id}}');
+  await evaluate(panel.sessionId,"document.getElementById('follow-poll').click()");
+  await until(()=>evaluate(panel.sessionId,"!document.getElementById('result-pane').hidden"),'printed receipt result');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('result-text').textContent"),'ROOM 608\nGUEST Lee');
+  assert(printPolls>=2);
+  const historyAfterPoll=await rpc('history',{tabId});
+  assert.equal(historyAfterPoll[0].url,base+'/api/check-in');
+  await evaluate(panel.sessionId,"document.getElementById('open-result').click()");
+  const viewerTab=await until(()=>evaluate(panel.sessionId,"chrome.tabs.query({}).then(tabs=>tabs.find(tab=>tab.url?.includes('/viewer.html#result:'))?.id)"),'result viewer');
+  assert(Number.isInteger(viewerTab));
+  const viewerInfo=await evaluate(panel.sessionId,`chrome.tabs.get(${viewerTab})`);
+  const targets=await call('Target.getTargets');
+  const viewerTarget=targets.targetInfos.find(info=>info.url===viewerInfo.url);
+  assert(viewerTarget);
+  const {sessionId:viewerSession}=await call('Target.attachToTarget',{targetId:viewerTarget.targetId,flatten:true});
+  await until(()=>evaluate(viewerSession,"document.getElementById('content')?.textContent==='ROOM 608\\nGUEST Lee'"),'viewer result');
+  assert.equal(await evaluate(viewerSession,"document.documentElement.dataset.theme"),'light');
+  await call('Target.closeTarget',{targetId:viewerTarget.targetId});
+  await until(()=>evaluate(panel.sessionId,`chrome.storage.session.get('viewer:${viewerTab}').then(data=>!data['viewer:${viewerTab}'])`),'viewer cleanup');
+  console.log('PASS: JSON check-in, async job polling, receipt extraction, and opening the result in a tab');
+
+  await call('Page.bringToFront',{},panel.sessionId);
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/redirect')});set('method','GET');set('mode','fetch');set('body-type','text');set('body','');set('headers','');document.getElementById('send').click();
+  })()`);
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('response-url').textContent.endsWith('/redirected')"),'redirect response');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('open-destination').hidden"),false);
+  const destinationUrl=await evaluate(panel.sessionId,"document.getElementById('response-url').textContent");
+  await evaluate(panel.sessionId,"document.getElementById('open-destination').click()");
+  const destinationTab=await until(()=>evaluate(panel.sessionId,`chrome.tabs.query({}).then(tabs=>tabs.find(tab=>tab.url===${JSON.stringify(destinationUrl)})?.id)`),'destination tab');
+  assert(Number.isInteger(destinationTab));
+  await evaluate(panel.sessionId,`chrome.tabs.remove(${destinationTab})`);
+  console.log('PASS: HTTP redirect exposes its final URL and opens it in a browser tab');
+
+  if (process.env.HACKTAB_LIVE_ORIGIN) {
+    const origin=process.env.HACKTAB_LIVE_ORIGIN.replace(/\/$/,'');
+    const lookup=await execute({url:origin+'/api/reservations/lookup',method:'POST',mode:'fetch',bodyType:'json',body:'{"reservation":"A7K-204","family_name":"Lee"}',headersText:'Content-Type: application/json'});
+    assert.equal(lookup.status,200);
+    const checkin=await execute({url:origin+'/api/check-in',method:'POST',mode:'fetch',bodyType:'json',body:'{"reservation":"A7K-204","family_name":"Lee","receipt_layout":"standard.ticket"}',headersText:'Content-Type: application/json'});
+    assert.equal(checkin.status,202);
+    const jobId=JSON.parse(checkin.body).job_id;
+    assert(jobId);
+    let finished;
+    for(let attempt=0;attempt<30;attempt++){
+      await new Promise(resolve=>setTimeout(resolve,400));
+      const result=await rpc('follow-up',{request:{tabId,url:origin+'/api/print-jobs/'+encodeURIComponent(jobId),method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:''}});
+      assert.equal(result.status,200);
+      const job=JSON.parse(result.body);
+      if(job.state==='ready'){finished=job;break;}
+      if(job.state==='failed') throw new Error('Live job failed');
+    }
+    assert(finished?.receipt_text);
+    console.log('PASS: Live reservation lookup, check-in job, and receipt polling');
+  }
+
+  await call('Page.bringToFront',{},panel.sessionId);
+  await evaluate(panel.sessionId,"document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'));document.getElementById('scratch').value='Select text, then choose a payload or transformation.';scrollTo(0,0);");
   for(const theme of ['light','dark']){
     await evaluate(panel.sessionId,`document.getElementById('theme').value='${theme}';document.getElementById('theme').dispatchEvent(new Event('change'));`);
     const shot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
