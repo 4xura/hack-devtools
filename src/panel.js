@@ -1,4 +1,4 @@
-import {columnList, interpolate, validateRequest} from './core.js';
+import {columnList, interpolate, validateRequest, normalizeUrl, mergeHeaders} from './core.js';
 import {TRANSFORMS, transform} from './transforms.js';
 import {PAYLOADS, CATEGORIES, searchPayloads} from './payloads.js';
 
@@ -11,9 +11,10 @@ let target = $('url'), category = 'All';
 const undoStacks = new WeakMap();
 let draftTimer, settingsTimer;
 
-function status(message, error = false) {
+function status(message, error = false, pending = false) {
   $('status').textContent = message;
   $('status').dataset.error = String(error);
+  $('status').hidden = !error && !pending;
 }
 async function message(action, extra = {}) {
   const response = await chrome.runtime.sendMessage({action, tabId, ...extra});
@@ -54,7 +55,9 @@ function insert(text) {
 }
 function templateValues(entry) {
   const values = {};
-  for (const key of ['column_count', 'seconds', 'database', 'table', 'columns', 'file', 'host', 'port']) values[key] = $(`opt-${key.replaceAll('_', '-')}`).value;
+  for (const key of ['column_count', 'seconds', 'database', 'table', 'columns', 'file', 'host', 'port', 'path']) values[key] = $(`opt-${key.replaceAll('_', '-')}`).value;
+  if (entry.template.includes('{{origin}}')) values.origin = new URL(normalizeUrl($('url').value)).origin;
+  if (entry.template.includes('{{path}}') && (!values.path.startsWith('/') || /[?#\r\n]/.test(values.path))) throw new Error('Target path must start with / and have no query or fragment.');
   if (/\{\{(?:column_count|number_columns|null_columns)\}\}/.test(entry.template)) {
     values.number_columns = columnList(values.column_count);
     values.null_columns = columnList(values.column_count, 'null');
@@ -91,7 +94,11 @@ function renderPayloads() {
     button.addEventListener('click', () => {
       try {
         const text = interpolate(entry.template, templateValues(entry));
-        insert($('encode-insert').checked ? encodeURIComponent(text) : text);
+        if (entry.target === 'headers') {
+          remember($('headers')); $('headers').value = mergeHeaders($('headers').value, text); $('headers').focus(); saveDraft();
+        } else if (entry.target === 'url') {
+          remember($('url')); $('url').value = text; $('url').focus(); saveDraft();
+        } else insert($('encode-insert').checked ? encodeURIComponent(text) : text);
         status(`Inserted ${entry.label} into ${labels[target.id]}.`);
       } catch (error) { status(error.message, true); }
     });
@@ -123,7 +130,7 @@ async function send() {
   if ($('send').disabled) return;
   try {
     const request = validateRequest(readRequest());
-    $('send').disabled = true; status('Sending request…');
+    $('send').disabled = true; status('Sending request…', false, true);
     const result = await message('execute', {request});
     if (result.mode === 'fetch') {
       $('response-pane').hidden = false;
@@ -140,12 +147,12 @@ async function loadPage() {
   try {
     const result = await message('load');
     writeRequest({url: result.url, method: result.method, body: result.body, bodyType: 'form'});
-    status('Loaded the inspected page.');
+    status('');
   } catch (error) { status(error.message, true); }
 }
 
 for (const id of editors) {
-  $(id).addEventListener('focus', () => {target = $(id); $('target-label').textContent = `Target: ${labels[id]}`;});
+  $(id).addEventListener('focus', () => {target = $(id);});
   $(id).addEventListener('input', saveDraft);
 }
 for (const id of ['method', 'mode', 'body-type']) $(id).addEventListener('change', () => {updateMode(); saveDraft();});
@@ -162,12 +169,22 @@ $('reset-headers').addEventListener('click', async () => {
   try {await message('reset-headers'); remember($('headers')); $('headers').value = ''; saveDraft(); status('Header overrides removed.');}
   catch (error) {status(error.message, true);}
 });
+$('fetch-headers').addEventListener('click', async () => {
+  const button = $('fetch-headers'), before = $('headers').value;
+  try {
+    button.disabled = true; status('Fetching page headers…', false, true);
+    const result = await message('fetch-headers');
+    if ($('headers').value !== before) throw new Error('Headers changed while fetching. Fetch again to replace them.');
+    remember($('headers')); $('headers').value = result.headersText; $('headers').focus(); saveDraft(); status('');
+  } catch (error) {status(error.message, true);}
+  finally {button.disabled = false;}
+});
 $('header-preset').addEventListener('change', event => {
   const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: HackTab/0.1', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
   const preset = presets[event.target.value];
   if (preset) {
     remember($('headers'));
-    $('headers').value += ($('headers').value && !$('headers').value.endsWith('\n') ? '\n' : '') + preset;
+    try {$('headers').value = mergeHeaders($('headers').value, preset);} catch (error) {status(error.message, true); event.target.value = ''; return;}
     $('headers').focus(); saveDraft();
   }
   event.target.value = '';

@@ -1,7 +1,8 @@
-import {validateRequest, parseForm} from './core.js';
+import {validateRequest, parseForm, normalizeUrl, editableHeaders, parseHeaders} from './core.js';
 
 const tabQueues = new Map();
 let fetchQueue = Promise.resolve();
+let activeFetchCapture = null;
 const FETCH_RULE_ID = 2147483647;
 const sessionKey = (kind, tabId) => `${kind}:${tabId}`;
 
@@ -73,7 +74,7 @@ async function readPreview(response) {
   return {body, truncated};
 }
 
-async function fetchRequest(request) {
+async function fetchRequest(request, captureHeaders = false) {
   // Chrome-managed headers are applied through a temporary network rule.
   const headers = [...request.headers];
   const hasBody = !['GET', 'HEAD'].includes(request.method);
@@ -83,17 +84,41 @@ async function fetchRequest(request) {
   const rule = headerRule(FETCH_RULE_ID, headers, {tabIds: [-1], initiatorDomains: [chrome.runtime.id], requestDomains: [new URL(request.url).hostname], resourceTypes: ['xmlhttprequest']});
   await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [FETCH_RULE_ID], addRules: headers.length ? [rule] : []});
   const started = performance.now();
+  if (captureHeaders) activeFetchCapture = {headers: []};
   try {
     const response = await fetch(request.url, {
       method: request.method,
       ...(hasBody ? {body: request.body || ''} : {}),
       credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(30000)
     });
+    if (captureHeaders) {
+      await response.body?.cancel();
+      const headersText = editableHeaders(activeFetchCapture.headers);
+      if (!headersText) throw new Error('Chrome did not expose request headers for this page.');
+      return {url: response.url, headersText};
+    }
     const preview = await readPreview(response);
     return {mode: 'fetch', url: response.url, status: response.status, statusText: response.statusText, headers: [...response.headers].map(([name, value]) => `${name}: ${value}`).join('\n'), duration: Math.round(performance.now() - started), ...preview};
   } finally {
+    activeFetchCapture = null;
     await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [FETCH_RULE_ID]});
   }
+}
+
+async function fetchPageHeaders(tabId) {
+  return serial(tabQueues, tabId, async () => {
+    const tab = await chrome.tabs.get(tabId);
+    const pageUrl = new URL(normalizeUrl(tab.url));
+    pageUrl.hash = '';
+    const url = pageUrl.href;
+    const key = sessionKey('page-headers', tabId);
+    const captured = (await chrome.storage.session.get(key))[key];
+    // Preserve the page's authentication and normal content negotiation.
+    const headers = captured?.url === url ? parseHeaders(editableHeaders(captured.headers)).filter(header => /^(?:accept|accept-language|authorization|cookie|origin|referer|user-agent)$/i.test(header.name)) : [];
+    const job = fetchQueue.catch(() => {}).then(() => fetchRequest({url, method:'GET', headers}, true));
+    fetchQueue = job;
+    return job;
+  });
 }
 
 async function execute(data) {
@@ -119,6 +144,7 @@ async function handle(message) {
   const tabId = message.tabId ?? message.request?.tabId;
   if (!Number.isInteger(tabId) || tabId < 0) throw new Error('No inspected tab is available.');
   switch (message.action) {
+    case 'fetch-headers': return fetchPageHeaders(tabId);
     case 'execute': return execute(message.request);
     case 'load': {
       const tab = await chrome.tabs.get(tabId);
@@ -151,7 +177,18 @@ chrome.webRequest.onBeforeRequest.addListener(details => {
   serial(tabQueues, `capture:${details.tabId}`, () => recordRequest(details)).catch(() => {});
 }, {urls: ['http://*/*', 'https://*/*'], types: ['main_frame']}, ['requestBody']);
 
+chrome.webRequest.onSendHeaders.addListener(details => {
+  if (activeFetchCapture && details.tabId === -1 && details.initiator === chrome.runtime.getURL('').slice(0, -1)) {
+    activeFetchCapture.headers = details.requestHeaders || [];
+  }
+  if (details.type === 'main_frame' && details.tabId >= 0) {
+    serial(tabQueues, `capture:${details.tabId}`, () => chrome.storage.session.set({
+      [sessionKey('page-headers', details.tabId)]: {url: details.url, headers: details.requestHeaders || []}
+    })).catch(() => {});
+  }
+}, {urls: ['http://*/*', 'https://*/*'], types: ['main_frame', 'xmlhttprequest']}, ['requestHeaders', 'extraHeaders']);
+
 chrome.tabs.onRemoved.addListener(tabId => {
   chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [tabId + 1]}).catch(() => {});
-  serial(tabQueues, `capture:${tabId}`, () => chrome.storage.session.remove(['capture', 'history', 'draft'].map(kind => sessionKey(kind, tabId)))).catch(() => {});
+  serial(tabQueues, `capture:${tabId}`, () => chrome.storage.session.remove(['capture', 'page-headers', 'history', 'draft'].map(kind => sessionKey(kind, tabId)))).catch(() => {});
 });

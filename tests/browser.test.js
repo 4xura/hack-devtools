@@ -135,6 +135,34 @@ async function run(){
   assert.equal(invalid.ok,false);
   console.log('PASS: Header reset, worker restart, session history, and rejected invalid requests');
 
+  const documentUrl=await evaluate(inspected.sessionId,'location.href');
+  const requestCount=requests.length;
+  const fetchedHeaders=await rpc('fetch-headers',{tabId});
+  assert.equal(await evaluate(inspected.sessionId,'location.href'),documentUrl);
+  const backgroundRequest=requests.slice(requestCount).find(request=>request.url==='/reset');
+  assert(backgroundRequest); assert.equal(backgroundRequest.method,'GET'); assert.equal(backgroundRequest.body,'');
+  assert(/user-agent:/i.test(fetchedHeaders.headersText));
+  assert(!/^(?:host|sec-fetch-site|content-length):/im.test(fetchedHeaders.headersText));
+  console.log('PASS: Background header Fetch captures editable request headers without navigating the page');
+  await call('Network.enable',{},inspected.sessionId);
+  await call('Network.setCookie',{name:'header_fetch_test',value:'session',url:base+'/'},inspected.sessionId);
+  await call('Network.setExtraHTTPHeaders',{headers:{Authorization:'Bearer local-header-test'}},inspected.sessionId);
+  await call('Page.navigate',{url:base+'/authenticated'},inspected.sessionId);
+  await getRequest('/authenticated');
+  await until(()=>evaluate(inspected.sessionId,"document.readyState==='complete'"),'authenticated document');
+  const authHeaders=await rpc('fetch-headers',{tabId});
+  const authGet=requests.filter(request=>request.url==='/authenticated').at(-1);
+  assert.equal(authGet.method,'GET');
+  assert.equal(authGet.headers.authorization,'Bearer local-header-test');
+  assert(authGet.headers.cookie.includes('header_fetch_test=session'));
+  assert(/authorization: Bearer local-header-test/i.test(authHeaders.headersText));
+  assert(/header_fetch_test=session/.test(authHeaders.headersText));
+  await evaluate(inspected.sessionId,"location.hash='section'");
+  const hashHeaders=await rpc('fetch-headers',{tabId});
+  assert(/authorization: Bearer local-header-test/i.test(hashHeaders.headersText));
+  assert((await evaluate(inspected.sessionId,'location.href')).endsWith('#section'));
+  console.log('PASS: Header Fetch preserves page authorization and session cookies');
+
   await call('Page.bringToFront',{},panel.sessionId);
   await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
   await call('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'dark'}]},panel.sessionId);
@@ -144,6 +172,13 @@ async function run(){
   assert.notEqual(await evaluate(panel.sessionId,"getComputedStyle(document.body).backgroundColor"),dark);
   await evaluate(panel.sessionId,"document.getElementById('theme').value='dark';document.getElementById('theme').dispatchEvent(new Event('change'));");
   assert.equal(await evaluate(panel.sessionId,"getComputedStyle(document.body).backgroundColor"),dark);
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.brand span').textContent"),'Designed for web pentest');
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('footer,#target-label')"),null);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').hidden"),true);
+  await evaluate(panel.sessionId,"document.getElementById('fetch-headers').click()");
+  await until(()=>evaluate(panel.sessionId,"!document.getElementById('fetch-headers').disabled && /user-agent:/i.test(document.getElementById('headers').value)"),'Fetch headers button');
+  await evaluate(panel.sessionId,"document.getElementById('reset-headers').click()");
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('headers').value===''"),'Reset headers button');
   await evaluate(panel.sessionId,"document.getElementById('scratch').focus();document.getElementById('scratch').value='abcXYZdef';document.getElementById('scratch').setSelectionRange(3,6);document.getElementById('search').value='script element';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abc<script>alert(1)</script>def',await evaluate(panel.sessionId,"document.getElementById('status').textContent"));
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('#payload-list script')===null"),true);
@@ -152,6 +187,14 @@ async function run(){
   await evaluate(panel.sessionId,"document.getElementById('transform').value='base64-encode';document.getElementById('apply-transform').click()");
   await until(()=>evaluate(panel.sessionId,"document.getElementById('scratch').value==='abcWFla def'.replace(' ','')"),'selection transform');
   console.log('PASS: Live system appearance, explicit theme, safe payload insertion, selection transforms, and undo');
+
+  await evaluate(panel.sessionId,"document.getElementById('search').value='Jinja config object';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
+  assert((await evaluate(panel.sessionId,"document.getElementById('scratch').value")).includes('{{config}}'));
+  await evaluate(panel.sessionId,"document.getElementById('search').value='Original URL override';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();document.querySelector('.payload').click();");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value"),'X-Original-URL: /admin');
+  await evaluate(panel.sessionId,"document.getElementById('search').value='Trailing slash';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/admin/');
+  console.log('PASS: SSTI native braces preserved and 403 header/path payloads route to the correct fields');
 
   await evaluate(panel.sessionId,`(() => {
     const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
@@ -176,6 +219,19 @@ async function run(){
     await evaluate(panel.sessionId,`document.getElementById('theme').value='${theme}';document.getElementById('theme').dispatchEvent(new Event('change'));`);
     const shot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
     fs.writeFileSync(path.join(output,`hacktab-${theme}.png`),Buffer.from(shot.data,'base64'));
+  }
+  for (const width of [420,600,820,1280]) {
+    await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
+    for (const fontScale of [1,1.5]) {
+      await evaluate(panel.sessionId,`document.getElementById('fetch-headers').style.fontSize='${13*fontScale}px';document.getElementById('reset-headers').style.fontSize='${13*fontScale}px';`);
+      const layout=await evaluate(panel.sessionId,`(() => {
+        const rect=id=>document.getElementById(id).getBoundingClientRect();
+        const box=rect('headers'),fetch=rect('fetch-headers'),reset=rect('reset-headers'),transform=document.querySelector('.transform-bar').getBoundingClientRect();
+        return {clear:fetch.top>=box.bottom+6 && reset.top>=box.bottom+6 && fetch.right<=reset.left && transform.top>=reset.bottom,overflow:document.documentElement.scrollWidth>innerWidth};
+      })()`);
+      assert.equal(layout.clear,true,`Header controls overlap at ${width}px, font scale ${fontScale}`);
+      assert.equal(layout.overflow,false,`Horizontal overflow at ${width}px`);
+    }
   }
   await call('Emulation.setDeviceMetricsOverride',{width:600,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
   assert.equal(await evaluate(panel.sessionId,'document.documentElement.scrollWidth<=innerWidth'),true);

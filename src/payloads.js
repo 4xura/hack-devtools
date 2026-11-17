@@ -1,3 +1,4 @@
+import {EXTRA_PAYLOADS} from './payloads-extra.js';
 // Plain text templates. Rendering and insertion never evaluate payload content.
 const entries = [];
 function group(category, section, rows) {
@@ -114,15 +115,12 @@ group('Templates', 'Request bodies', [
   ['Form parameters', 'name={{selected}}&value=1'], ['GraphQL body', '{"query":"query { __typename }"}']
 ]);
 group('Templates', 'Server-side expression checks', [
-  ['Jinja / Twig arithmetic', '{{7*7}}'], ['Template literal arithmetic', '${7*7}'],
-  ['ERB arithmetic', '<%= 7*7 %>'], ['Spring expression', '${{7*7}}'],
-  ['Angular expression', '{{constructor.name}}'], ['FreeMarker arithmetic', '${7*7}'],
   ['JSON boolean value', '{"enabled":true}'], ['JSON null value', '{"value":null}'],
   ['XML CDATA probe', '<probe><![CDATA[<marker>&value]]></probe>'],
   ['NoSQL type check', '{"value":{"$eq":"probe"}}']
 ]);
 
-export const PAYLOADS = Object.freeze(entries.map(entry => Object.freeze(entry)));
+export const PAYLOADS = Object.freeze([...entries, ...EXTRA_PAYLOADS].map(entry => Object.freeze(entry)));
 export const CATEGORIES = ['All', ...new Set(PAYLOADS.map(entry => entry.category))];
 export function searchPayloads(query = '', category = 'All') {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceSelection, validateRequest} from '../src/core.js';
+import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceSelection, validateRequest, editableHeaders, mergeHeaders} from '../src/core.js';
 import {transform, md5} from '../src/transforms.js';
 import {PAYLOADS, searchPayloads} from '../src/payloads.js';
 
@@ -23,7 +23,8 @@ test('templates validate required options and column count bounds', () => {
   assert.equal(columnList(3), '1,2,3'); assert.equal(columnList(2, 'null'), 'NULL,NULL');
   for (const count of [0, -1, 101, 1.2, 'NaN']) assert.throws(() => columnList(count));
   assert.equal(interpolate('{{table}} / {{table}}', {table:'users'}), 'users / users');
-  assert.throws(() => interpolate('{{missing}}', {}));
+  assert.throws(() => interpolate('{{host}}', {}));
+  assert.equal(interpolate('{{config}} {{self}} {{this}} {{7*7}}', {}), '{{config}} {{self}} {{this}} {{7*7}}');
   assert.deepEqual(replaceSelection('abcXYZdef', 3, 6, 'ok'), {text:'abcokdef',start:3,end:5});
 });
 test('request validation catches incompatible mode and body combinations', () => {
@@ -57,11 +58,18 @@ test('JWT decoding is explicitly unverified and parses UTF-8', async () => {
 test('catalog has unique searchable entries and resolvable templates', () => {
   assert(PAYLOADS.length >= 120);
   assert.equal(new Set(PAYLOADS.map(entry => entry.id)).size, PAYLOADS.length);
-  const values = {column_count:3,number_columns:'1,2,3',null_columns:'NULL,NULL,NULL',seconds:3,database:'app',table:'users',columns:'id',file:'/etc/passwd',relative_file:'etc/passwd',host:'127.0.0.1',port:4444,selected:'probe'};
+  const values = {column_count:3,number_columns:'1,2,3',null_columns:'NULL,NULL,NULL',seconds:3,database:'app',table:'users',columns:'id',file:'/etc/passwd',relative_file:'etc/passwd',host:'127.0.0.1',port:4444,selected:'probe',origin:'https://example.com',path:'/admin'};
   for (const entry of PAYLOADS) {
     const resolved = interpolate(entry.template, values);
     assert(!/\{\{(?:column_count|number_columns|null_columns|seconds|database|table|columns|file|relative_file|host|port|selected)\}\}/.test(resolved));
   }
   assert(searchPayloads('postgresql version', 'SQL').length > 0);
   assert.equal(searchPayloads('UNION', 'XXE').length, 0);
+  for (const category of ['SSTI','SSRF','403-bypass']) assert(searchPayloads('',category).length>=30);
+  for (const entry of PAYLOADS.filter(entry=>entry.target==='headers')) parseHeaders(interpolate(entry.template,values));
+});
+test('captured headers become editable without browser framing or duplicates', () => {
+  const text = editableHeaders([{name:'Host',value:'example.com'},{name:':method',value:'GET'},{name:'Sec-Fetch-Site',value:'none'},{name:'User-Agent',value:'Chrome'},{name:'Cookie',value:'session=test'},{name:'X-Test',value:'one'},{name:'x-test',value:'two'}]);
+  assert.deepEqual(parseHeaders(text),[{name:'User-Agent',value:'Chrome'},{name:'Cookie',value:'session=test'},{name:'x-test',value:'two'}]);
+  assert.equal(mergeHeaders('X-Test: one\nCookie: session=test','x-test: two'), 'x-test: two\nCookie: session=test');
 });

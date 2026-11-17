@@ -31,10 +31,30 @@ export function parseForm(text) {
 }
 
 export function interpolate(template, values) {
-  return template.replace(/\{\{([a-z_]+)\}\}/g, (_, key) => {
+  const options = new Set(['column_count','number_columns','null_columns','seconds','database','table','columns','file','relative_file','host','port','selected','origin','path']);
+  return template.replace(/\{\{([a-z_]+)\}\}/g, (literal, key) => {
+    if (!options.has(key)) return literal;
     if (values[key] === undefined || String(values[key]).trim() === '') throw new Error(`Set the ${key.replaceAll('_', ' ')} option first.`);
     return String(values[key]);
   });
+}
+
+export function editableHeaders(headers) {
+  const result = new Map();
+  for (const {name, value} of headers || []) {
+    if (!name || value === undefined || /^(?:host|content-length|connection|transfer-encoding|upgrade|accept-encoding|priority|sec-.*)$/i.test(name)) continue;
+    try {
+      const [header] = parseHeaders(`${name}: ${value}`);
+      result.set(name.toLowerCase(), header);
+    } catch { /* Pseudo-headers and binary values cannot be edited as text. */ }
+  }
+  return [...result.values()].map(({name, value}) => `${name}: ${value}`).join('\n');
+}
+
+export function mergeHeaders(current, additions) {
+  const merged = new Map(parseHeaders(current).map(header => [header.name.toLowerCase(), header]));
+  for (const header of parseHeaders(additions)) merged.set(header.name.toLowerCase(), header);
+  return [...merged.values()].map(({name, value}) => `${name}: ${value}`).join('\n');
 }
 
 export function columnList(count, style = 'number') {

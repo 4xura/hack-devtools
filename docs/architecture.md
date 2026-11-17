@@ -10,6 +10,7 @@ HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN 
 | `src/core.js` | Request validation, header/form parsing, and template helpers |
 | `src/transforms.js` | Text encoders, decoders, and hashes |
 | `src/payloads.js` | Searchable text template catalog |
+| `src/payloads-extra.js` | SSTI, SSRF, and 403-bypass catalog entries |
 | `styles/panel.css` | Responsive layout, system appearance, and explicit themes |
 
 ## Requests
@@ -20,17 +21,21 @@ Navigation uses `tabs.update` for GET and `scripting.executeScript` with structu
 
 Header modifications use declarative session rules. Navigation rules are constrained by tab, destination hostname, and main-frame resource type. Fetch rules use the extension initiator, destination hostname, and request resource type, and are removed in a `finally` block. Automatic redirects can be followed by Chrome; overrides do not match other destination hostnames. Fetch streams responses into a bounded text preview.
 
-Top-level navigation request bodies are captured with the read-only webRequest API. Per-tab session state survives service worker suspension. Tab closure removes captured data, drafts, history, and header rules.
+Top-level navigation request bodies and outgoing headers are captured with the read-only webRequest API. The header editor’s Fetch action runs a background GET through the serialized Fetch queue, observes its final outgoing headers with `onSendHeaders` and `extraHeaders`, and returns an editable subset. It does not navigate the tab, save a replay-history entry, or reuse a POST body. Response headers remain in the separate response preview.
+
+Per-tab session state survives service worker suspension. Tab closure removes captured data, drafts, history, and header rules.
 
 ## Rendering
 
 Payloads, response text, error messages, and history URLs are rendered through text nodes or editor values. Templates are substituted as strings. Text transformations never use `eval` or insert untrusted HTML. SHA hashes use Web Crypto; MD5 uses a local UTF-8 implementation. JWT decoding reports that its contents are unverified.
+
+Only recognized option names are interpolated, preserving engine-native expressions such as `{{config}}`. Catalog entries may declare a header or URL destination. Header insertion performs a case-insensitive upsert to prevent duplicate override names; URL variants use the current origin and configured path. Ordinary payloads continue to insert at the active editor selection.
 
 ## Extension permissions
 
 - `tabs`: resolve the inspected URL and navigate it.
 - `scripting`: submit a POST form in the inspected page.
 - `storage`: local preferences and ephemeral session data.
-- `webRequest`: capture navigation method and body.
+- `webRequest`: capture navigation method/body and outgoing request headers.
 - `declarativeNetRequestWithHostAccess`: apply explicitly configured header overrides.
 - HTTP/HTTPS host access: operate on user-selected request destinations.
