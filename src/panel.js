@@ -14,6 +14,7 @@ let draftTimer, settingsTimer;
 
 function status(message, error = false, pending = false) {
   $('status').textContent = message;
+  $('status').title = message;
   $('status').dataset.error = String(error);
   $('status').hidden = !error && !pending;
 }

@@ -21,6 +21,7 @@ const server = http.createServer((request, response) => {
     if (request.url === '/api/check-in') {response.writeHead(202,{'Content-Type':'application/json'}); response.end(JSON.stringify({job_id:'local-job-1',state:'queued'})); return;}
     if (request.url === '/api/print-jobs/local-job-1') {printPolls++; response.setHeader('Content-Type','application/json'); response.end(JSON.stringify(printPolls>=2?{state:'ready',receipt_text:'ROOM 608\nGUEST Lee'}:{state:'queued'})); return;}
     if (request.url === '/redirect') {response.writeHead(302,{Location:'http://localhost:'+server.address().port+'/redirected'}); response.end(); return;}
+    if (request.url === '/redirect-post') {response.writeHead(302,{Location:'/redirect-post-final'}); response.end(); return;}
     if (request.url === '/large') {response.setHeader('Content-Type','text/plain'); response.end('x'.repeat(1048600)); return;}
     if (request.url === '/json') {response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({received:body})); return;}
     response.setHeader('Content-Type','text/html; charset=utf-8');
@@ -117,6 +118,10 @@ async function run(){
   const redirected=await getRequest('/redirected');
   assert.notEqual(redirected.headers['user-agent'],'HackTab-Test/1.0');
   assert(!redirected.headers['x-probe']); assert(!redirected.headers.cookie);
+  const postRedirect=await execute({url:base+'/redirect-post',mode:'fetch',method:'POST',bodyType:'json',body:'{"probe":true}',headersText:'Content-Type: application/json'});
+  assert.equal(postRedirect.redirected,true);
+  assert.equal(postRedirect.url,base+'/redirect-post-final');
+  assert.equal((await getRequest('/redirect-post-final')).method,'GET');
   const [first,second]=await Promise.all([
     execute({url:base+'/parallel-one',mode:'fetch',headersText:'X-Probe: one'}),
     execute({url:base+'/parallel-two',mode:'fetch',headersText:'X-Probe: two'})
@@ -178,6 +183,9 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('.brand span').textContent"),'Designed for web pentest');
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('footer,#target-label')"),null);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').hidden"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').parentElement.className"),'header-tools');
+  assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('response-pane').compareDocumentPosition(document.getElementById('scratch')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
+  assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('history-pane').compareDocumentPosition(document.getElementById('scratch')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
   await evaluate(panel.sessionId,"document.getElementById('fetch-headers').click()");
   await until(()=>evaluate(panel.sessionId,"!document.getElementById('fetch-headers').disabled && /user-agent:/i.test(document.getElementById('headers').value)"),'Fetch headers button');
   await evaluate(panel.sessionId,"document.getElementById('reset-headers').click()");
@@ -291,16 +299,17 @@ async function run(){
   for (const width of [420,600,820,1280]) {
     await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
     for (const fontScale of [1,1.5]) {
-      await evaluate(panel.sessionId,`document.getElementById('fetch-headers').style.fontSize='${13*fontScale}px';document.getElementById('reset-headers').style.fontSize='${13*fontScale}px';`);
+      await evaluate(panel.sessionId,`document.getElementById('fetch-headers').style.fontSize='${13*fontScale}px';document.getElementById('reset-headers').style.fontSize='${13*fontScale}px';document.getElementById('status').hidden=false;document.getElementById('status').textContent='Fetching page headers…';`);
       const layout=await evaluate(panel.sessionId,`(() => {
         const rect=id=>document.getElementById(id).getBoundingClientRect();
-        const box=rect('headers'),fetch=rect('fetch-headers'),reset=rect('reset-headers'),transform=document.querySelector('.transform-bar').getBoundingClientRect();
-        return {clear:fetch.top>=box.bottom+6 && reset.top>=box.bottom+6 && fetch.right<=reset.left && transform.top>=reset.bottom,overflow:document.documentElement.scrollWidth>innerWidth};
+        const box=rect('headers'),fetch=rect('fetch-headers'),reset=rect('reset-headers'),status=rect('status'),transform=document.querySelector('.transform-bar').getBoundingClientRect();
+        return {clear:fetch.top>=box.bottom+6 && reset.top>=box.bottom+6 && fetch.right<=reset.left && status.left>=reset.right && Math.abs(status.top-reset.top)<12 && transform.top>=status.bottom,overflow:document.documentElement.scrollWidth>innerWidth};
       })()`);
       assert.equal(layout.clear,true,`Header controls overlap at ${width}px, font scale ${fontScale}`);
       assert.equal(layout.overflow,false,`Horizontal overflow at ${width}px`);
     }
   }
+  await evaluate(panel.sessionId,"document.getElementById('status').hidden=true");
   await call('Emulation.setDeviceMetricsOverride',{width:600,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
   assert.equal(await evaluate(panel.sessionId,'document.documentElement.scrollWidth<=innerWidth'),true);
   const narrow=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
