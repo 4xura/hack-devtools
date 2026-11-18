@@ -50,6 +50,23 @@ setTimeout(async()=>{
   try {
     const tabId=(await browser.storage.session.get('smokeTabId')).smokeTabId;
     if(!Number.isInteger(tabId)) throw new Error('No inspected tab');
+    document.getElementById('url').value=smokeBase+'/post';
+    document.getElementById('method').value='POST';
+    document.getElementById('mode').value='fetch';
+    document.getElementById('body-type').value='json';
+    document.getElementById('body').value='broken JSON';
+    document.getElementById('send').click();
+    await new Promise(resolve=>setTimeout(resolve,0));
+    const bodyBox=document.getElementById('body').getBoundingClientRect();
+    const errorBox=document.getElementById('body-error').getBoundingClientRect();
+    const bodyErrorBelow=!document.getElementById('body-error').hidden && errorBox.top>=bodyBox.bottom && document.getElementById('status').hidden;
+    document.getElementById('body').dispatchEvent(new Event('input'));
+    const bodyErrorCleared=document.getElementById('body-error').hidden;
+    document.getElementById('method').dispatchEvent(new Event('change'));
+    document.getElementById('body-type').dispatchEvent(new Event('change'));
+    document.getElementById('body').value='{reservation: "A7K-204", family_name: "Lee"}';
+    document.getElementById('format-body').click();
+    const formattedBody=JSON.parse(document.getElementById('body').value);
     const send=(action,request)=>browser.runtime.sendMessage({action,tabId,request});
     const pageHeaders=await browser.runtime.sendMessage({action:'fetch-headers',tabId});
     const get=await send('execute',{tabId,url:smokeBase+'/get',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:''});
@@ -57,7 +74,7 @@ setTimeout(async()=>{
     const manual=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:'',pauseRedirects:true});
     const redirect=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:''});
     const nav=await send('execute',{tabId,url:smokeBase+'/nav',method:'GET',mode:'navigate',bodyType:'text',body:'',headersText:''});
-    result={pageHeaders,get,post,manual,redirect,nav,manualDisabled:document.getElementById('pause-redirects').disabled};
+    result={pageHeaders,get,post,manual,redirect,nav,manualDisabled:document.getElementById('pause-redirects').disabled,bodyErrorBelow,bodyErrorCleared,formattedBody};
   } catch(error) {result={error:'panel: '+error.message};}
   await fetch(smokeBase+'/report',{method:'POST',body:JSON.stringify(result)});
 },1200);
@@ -74,6 +91,9 @@ try{
   assert.equal(outcome.manual.ok,false);
   assert.match(outcome.manual.error,/Firefox cannot inspect intermediate redirects/);
   assert.equal(outcome.manualDisabled,true);
+  assert.equal(outcome.bodyErrorBelow,true);
+  assert.equal(outcome.bodyErrorCleared,true);
+  assert.deepEqual(outcome.formattedBody,{reservation:'A7K-204',family_name:'Lee'});
   assert.equal(outcome.get.result.status,200);
   assert.equal(outcome.post.result.status,200);
   assert.equal(outcome.redirect.result.status,200);

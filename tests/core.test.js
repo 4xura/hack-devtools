@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceSelection, validateRequest, editableHeaders, mergeHeaders, resolveFollowUp, readResponseField, nextRedirectRequest} from '../src/core.js';
 import {transform, md5} from '../src/transforms.js';
-import {PAYLOADS, searchPayloads} from '../src/payloads.js';
+import {PAYLOADS, CATEGORIES, searchPayloads} from '../src/payloads.js';
+import {formatBody} from '../src/body-format.js';
 
 test('URLs normalize without enabling executable or privileged schemes', () => {
   assert.equal(normalizeUrl('example.com/a\n?x=1'), 'https://example.com/a?x=1');
@@ -56,17 +57,31 @@ test('JWT decoding is explicitly unverified and parses UTF-8', async () => {
   await assert.rejects(transform('jwt-decode', 'invalid'));
 });
 test('catalog has unique searchable entries and resolvable templates', () => {
-  assert(PAYLOADS.length >= 120);
+  assert(PAYLOADS.length >= 625);
+  assert.deepEqual(CATEGORIES.slice(0,2),['All','Templates']);
+  assert.equal(PAYLOADS[0].category,'Templates');
   assert.equal(new Set(PAYLOADS.map(entry => entry.id)).size, PAYLOADS.length);
-  const values = {column_count:3,number_columns:'1,2,3',null_columns:'NULL,NULL,NULL',seconds:3,database:'app',table:'users',columns:'id',file:'/etc/passwd',relative_file:'etc/passwd',host:'127.0.0.1',port:4444,selected:'probe',origin:'https://example.com',path:'/admin'};
+  const values = {column_count:3,number_columns:'1,2,3',null_columns:'NULL,NULL,NULL',seconds:3,database:'app',table:'users',columns:'id',file:'/etc/passwd',relative_file:'etc/passwd',host:'127.0.0.1',port:4444,selected:'probe',origin:'https://example.com',path:'/admin',value:'probe'};
   for (const entry of PAYLOADS) {
     const resolved = interpolate(entry.template, values);
-    assert(!/\{\{(?:column_count|number_columns|null_columns|seconds|database|table|columns|file|relative_file|host|port|selected)\}\}/.test(resolved));
+    assert(!/\{\{(?:column_count|number_columns|null_columns|seconds|database|table|columns|file|relative_file|host|port|selected|origin|path|value)\}\}/.test(resolved));
   }
-  assert(searchPayloads('postgresql version', 'SQL').length > 0);
+  assert(searchPayloads('version', 'SQL-PostgreSQL').length > 0);
+  assert.equal(searchPayloads('', 'SQL').length, 0);
   assert.equal(searchPayloads('UNION', 'XXE').length, 0);
+  for (const category of ['SQL-MySQL','SQL-PostgreSQL','SQL-MSSQL','SQL-Oracle','SQL-SQLite','SQL-DB2','SQL-BigQuery','NoSQL-MongoDB','CORS','CMD','CRLF','CSS','CSV','Encoding','GraphQL','HPP','LDAP','SAML','Upload','WebSocket','XPath']) {
+    assert(searchPayloads('',category).length>=4,category);
+  }
   for (const category of ['SSTI','SSRF','403-bypass']) assert(searchPayloads('',category).length>=30);
   for (const entry of PAYLOADS.filter(entry=>entry.target==='headers')) parseHeaders(interpolate(entry.template,values));
+});
+test('Unicode transforms distinguish visual confusables from compatibility normalization', async () => {
+  assert.equal(await transform('latin-o-greek','logo'),'lοgο');
+  assert.equal(await transform('latin-o-cyrillic','logo'),'lоgо');
+  assert.equal(await transform('latin-o-fullwidth','logo'),'lｏgｏ');
+  assert.equal(await transform('unicode-nfkc','lｏgｏ'),'logo');
+  assert.equal(await transform('unicode-nfkc','lοgο'),'lοgο');
+  assert.equal(await transform('latin-cyrillic-lookalikes','aceop'),'асеор');
 });
 test('captured headers become editable without browser framing or duplicates', () => {
   const text = editableHeaders([{name:'Host',value:'example.com'},{name:':method',value:'GET'},{name:'Sec-Fetch-Site',value:'none'},{name:'User-Agent',value:'Chrome'},{name:'Cookie',value:'session=test'},{name:'X-Test',value:'one'},{name:'x-test',value:'two'}]);
@@ -97,4 +112,13 @@ test('redirect hops preserve method semantics and avoid cross-origin credential 
   assert.equal(nextRedirectRequest({...request,method:'PUT'},hop(303,'/result')).method,'GET');
   assert.throws(()=>nextRedirectRequest(request,hop(302,'javascript:alert(1)')));
   assert.throws(()=>nextRedirectRequest(request,hop(302,'https://user:pass@example.com/result')));
+});
+test('body formatter converts DevTools object notation and line-based form data', () => {
+  const formatted=formatBody('json',`{reservation: "A7K-204", family_name: 'Lee', receipt_layout: "large.ticket",}`);
+  assert.deepEqual(JSON.parse(formatted),{reservation:'A7K-204',family_name:'Lee',receipt_layout:'large.ticket'});
+  assert.equal(formatBody('form','name: Lee\nname: Morgan\nnote: hello world'),'name=Lee&name=Morgan&note=hello+world');
+  assert.equal(formatBody('form','family_name: Lee'),'family_name=Lee');
+  assert.equal(formatBody('form','name=hello+world&name=x%26y'),'name=hello+world&name=x%26y');
+  assert.throws(()=>formatBody('json','{a: process.exit(1)}'));
+  assert.throws(()=>formatBody('json','{a: NaN}'));
 });

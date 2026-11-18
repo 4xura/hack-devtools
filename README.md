@@ -31,6 +31,7 @@ Open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, 
 - **Header overrides** accept one `Name: value` per line. In Chrome, **Fetch** performs a background GET of the inspected page and replaces the editor with the outgoing request headers Chrome exposes. In Firefox, **Fetch** loads the most recently captured headers from that page; reload the page first if it was open before HackTab. It keeps the tab in place and does not replay POST bodies. Browser framing, compression, and `Sec-*` context headers are omitted from the editable list. **Reset** clears the editor and active navigation overrides. Presets cover Referer, User-Agent, Cookie, Authorization, Content-Type, and X-Forwarded-For.
 - **Load page** restores the inspected URL and its latest captured navigation body. POST capture covers requests made while the extension is enabled; it does not recover requests from before installation.
 - **Scratchpad** provides a separate text editor. Transforms use selected text, or the whole active field when nothing is selected. Payload insertion replaces the selection or inserts at the cursor. **Undo** restores the previous insertion or transformation in that field.
+- **Format** below Request body converts JavaScript-style object notation with unquoted keys, single quotes, or trailing commas into strict JSON when Body is set to JSON. With Form encoded selected, it converts URL-encoded pairs or line-based `name: value` fields into a form body. Invalid JSON is explained beneath the body editor. Formatting runs only when the button is clicked, so deliberately malformed test bodies stay intact until you choose to convert them.
 - **Ctrl+Enter** sends a request; **Command+Enter** also works on macOS.
 
 Navigation header overrides apply only to the inspected tab’s top-level requests to the configured destination hostname. They remain active until the next Navigate request replaces them, **Reset** is pressed, the workspace is cleared, or the tab closes. Fetch overrides apply only during that request. Cross-host redirects do not inherit custom overrides.
@@ -47,13 +48,17 @@ The reservation example uses an asynchronous job rather than an HTTP redirect. S
 
 ## Payload library
 
-Search and filter SQL, XSS, SSTI, SSRF, LFI, XXE, 403-bypass, shell snippets, and request body templates. SQL entries cover MySQL, PostgreSQL, MSSQL, Oracle, and SQLite, including column discovery, metadata, error probes, boolean tests, and delays. Entries marked **legacy** depend on database versions and features.
+Search and filter engine-specific SQL tabs for MySQL, PostgreSQL, MSSQL, Oracle, SQLite, DB2, and BigQuery, plus NoSQL-MongoDB. The catalog also includes XSS, LFI, XXE, SSTI, SSRF, 403-bypass, CORS, CMD, CRLF, CSS, CSV, Encoding, GraphQL, HPP, LDAP, SAML, Upload, WebSocket, XPath, shell snippets, and request body templates. SQL entries separate probes, enumeration, delays, advanced features, and legacy techniques where applicable.
 
 SSTI covers detection and engine-specific syntax for Jinja2, Django, Mako, Tornado, Twig, Smarty, Blade, FreeMarker, Velocity, Java EL, Thymeleaf, Ruby, JavaScript, Razor, and EEx. Native template expressions such as `{{config}}` remain literal payload text. SSRF includes alternate address forms, parser checks, URL schemes, and cloud metadata templates.
 
 403-bypass includes path variants, URL rewrite headers, method override headers, and client-IP header combinations. Header entries add or replace the corresponding override; path entries replace the URL using its current origin and the configured **Target path**. These actions prepare the composer without sending a request. Browsers normalize some dot-segment paths and URL forms; HackTab is not a raw HTTP transport.
 
-Template options configure column count, database, table, column names, file path, host, port, delay, and target path. Options are inserted as text. Review the resulting syntax before sending. Optional URL encoding applies to payloads inserted into the active editor; structured header and full-URL entries keep their request syntax. Payloads are never automatically sent or evaluated by the library. References and applicable notices are in `THIRD_PARTY_NOTICES.md`.
+Encoding includes explicit Unicode compatibility characters and visually similar letters. The transform menu provides NFC, NFD, NFKC, NFKD, and named Latin-to-lookalike substitutions. Greek omicron `ο` and Cyrillic `о` look like Latin `o` in many fonts, while NFKC keeps them distinct. Fullwidth `ｏ` normalizes to Latin `o`. See [Unicode confusables data](https://www.unicode.org/Public/security/latest/confusables.txt) and [Unicode normalization](https://www.unicode.org/reports/tr15/).
+
+Upload and WebSocket entries are text snippets for composing requests or messages. The current request composer sends HTTP requests and does not upload binary files or open WebSocket connections. Raw duplicate JSON keys in the HPP and NoSQL sections should be left unformatted because JSON formatting collapses duplicate keys.
+
+Template options configure column count, database, table, column names, file path, host, port, delay, target path, and a probe value. Options are inserted as text. Review the resulting syntax before sending. Optional URL encoding applies to payloads inserted into the active editor; structured header and full-URL entries keep their request syntax. Payloads are never automatically sent or evaluated by the library. References and applicable notices are in `THIRD_PARTY_NOTICES.md`.
 
 ## Appearance and storage
 
@@ -75,7 +80,7 @@ npm run package:all
 npm run lint:firefox
 ```
 
-Browser tests use isolated profiles and a loopback HTTP server. Set `CHROME_PATH` or `FIREFOX_PATH` when a browser is not at a standard Windows location. Test profiles and screenshots are written under `work/`. Packaging writes `dist/hacktab-1.0.0.zip` and `dist/hacktab-firefox-1.0.0.zip`, excluding tests, development files, and Git metadata.
+Browser tests use isolated profiles and a loopback HTTP server. Set `CHROME_PATH` or `FIREFOX_PATH` when a browser is not at a standard Windows location. Test profiles and screenshots are written under `work/`. Packaging writes `dist/hacktab-1.1.0.zip` and `dist/hacktab-firefox-1.1.0.zip`, excluding tests, development files, and Git metadata.
 
 For an authorized live environment that implements the reservation job example, set `HACKTAB_LIVE_ORIGIN` before `npm run test:browser` to exercise lookup, check-in, and job polling in addition to the local fixtures.
 

@@ -215,6 +215,43 @@ async function run(){
   await evaluate(panel.sessionId,"document.getElementById('search').value='Trailing slash';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/admin/');
   console.log('PASS: SSTI native braces preserved and 403 header/path payloads route to the correct fields');
+  assert.deepEqual(await evaluate(panel.sessionId,"[...document.querySelectorAll('#categories button')].slice(0,2).map(button=>button.textContent)"),['All','Templates']);
+
+  await evaluate(panel.sessionId,"(() => {const category=name=>[...document.querySelectorAll('#categories button')].find(button=>button.textContent===name);document.getElementById('search').value='';category('CORS').click();[...document.querySelectorAll('#payload-list button')].find(button=>button.firstChild.textContent==='Null origin').click();})()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value.includes('Origin: null')"),true);
+  await evaluate(panel.sessionId,"(() => {const category=name=>[...document.querySelectorAll('#categories button')].find(button=>button.textContent===name);category('SQL-PostgreSQL').click();})()");
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('#payload-list .payload-group').textContent.startsWith('SQL-PostgreSQL')"),true);
+  await evaluate(panel.sessionId,"(() => {document.getElementById('scratch').focus();document.getElementById('scratch').value='logo';document.getElementById('transform').value='latin-o-greek';document.getElementById('apply-transform').click();})()");
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('scratch').value==='lοgο'"),'Unicode substitution');
+  console.log('PASS: New category tabs insert CORS headers and SQL snippets; Unicode transform edits selected text');
+
+  await evaluate(panel.sessionId,`(() => {
+    const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
+    set('url',${JSON.stringify(base+'/invalid-json')});set('method','POST');set('mode','fetch');set('body-type','json');set('body','family_name: "Lee"');document.getElementById('send').click();
+  })()`);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body-error').hidden"),false);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').getAttribute('aria-invalid')"),'true');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').hidden"),true);
+  assert.equal(await evaluate(panel.sessionId,"(() => {const body=document.getElementById('body').getBoundingClientRect(),error=document.getElementById('body-error').getBoundingClientRect(),headers=document.getElementById('headers').getBoundingClientRect();return error.top>=body.bottom && error.left<headers.left;})()"),true);
+  assert.equal(requests.some(request=>request.url==='/invalid-json'),false);
+  await evaluate(panel.sessionId,"document.getElementById('body').value='{}';document.getElementById('body').dispatchEvent(new Event('input'));");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body-error').hidden"),true);
+  assert.equal(await evaluate(panel.sessionId,"(() => {const body=document.getElementById('body').getBoundingClientRect(),format=document.getElementById('format-body').getBoundingClientRect(),fetch=document.getElementById('fetch-headers').getBoundingClientRect();return format.top>=body.bottom+6 && Math.abs(format.left-body.left)<4 && Math.abs(format.top-fetch.top)<12;})()"),true);
+  console.log('PASS: JSON body errors appear below the request body and clear when edited');
+
+  await evaluate(panel.sessionId,`(() => {
+    document.getElementById('body').value='{reservation: "A7K-204", family_name: "Lee", receipt_layout: "large.ticket"}';
+    document.getElementById('format-body').click();
+  })()`);
+  const formattedJson=await evaluate(panel.sessionId,"document.getElementById('body').value");
+  assert.deepEqual(JSON.parse(formattedJson),{reservation:'A7K-204',family_name:'Lee',receipt_layout:'large.ticket'});
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body-error').hidden"),true);
+  await evaluate(panel.sessionId,`(() => {document.getElementById('url').value=${JSON.stringify(base+'/formatted-json')};document.getElementById('send').click();})()`);
+  const formattedRequest=await getRequest('/formatted-json');
+  assert.deepEqual(JSON.parse(formattedRequest.body),JSON.parse(formattedJson));
+  await evaluate(panel.sessionId,"document.getElementById('body-type').value='form';document.getElementById('body-type').dispatchEvent(new Event('change'));document.getElementById('body').value='name: Lee\\nname: Morgan\\nnote: hello world';document.getElementById('format-body').click();");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'name=Lee&name=Morgan&note=hello+world');
+  console.log('PASS: Format converts pasted object notation and form fields into sendable bodies');
 
   await evaluate(panel.sessionId,`(() => {
     const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};

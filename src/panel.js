@@ -1,6 +1,7 @@
 import {columnList, interpolate, validateRequest, normalizeUrl, mergeHeaders, resolveFollowUp, readResponseField, nextRedirectRequest} from './core.js';
 import {TRANSFORMS, transform} from './transforms.js';
 import {PAYLOADS, CATEGORIES, searchPayloads} from './payloads.js';
+import {formatBody} from './body-format.js';
 
 const $ = id => document.getElementById(id);
 const tabId = chrome.devtools?.inspectedWindow?.tabId ?? -1;
@@ -19,6 +20,17 @@ function status(message, error = false, pending = false) {
   $('status').dataset.error = String(error);
   $('status').hidden = !error && !pending;
 }
+function clearBodyError() {
+  $('body-error').hidden = true;
+  $('body-error').textContent = '';
+  $('body').removeAttribute('aria-invalid');
+}
+function showBodyError(message) {
+  $('body-error').textContent = message;
+  $('body-error').hidden = false;
+  $('body').setAttribute('aria-invalid', 'true');
+  status('');
+}
 async function message(action, extra = {}) {
   const response = await chrome.runtime.sendMessage({action, tabId, ...extra});
   if (!response?.ok) throw new Error(response?.error || 'The request worker did not respond.');
@@ -28,6 +40,7 @@ function readRequest() {
   return {tabId, url: $('url').value, method: $('method').value, mode: $('mode').value, bodyType: $('body-type').value, body: $('body').value, headersText: $('headers').value, pauseRedirects: $('pause-redirects').checked};
 }
 function writeRequest(request) {
+  clearBodyError();
   for (const [field, key] of [['url', 'url'], ['method', 'method'], ['mode', 'mode'], ['body-type', 'bodyType'], ['body', 'body'], ['headers', 'headersText']]) {
     if (request[key] !== undefined) $(field).value = request[key];
   }
@@ -42,6 +55,7 @@ function saveDraft() {
   }, 200);
 }
 function updateMode() {
+  if ($('body-type').value !== 'json') clearBodyError();
   const navigation = $('mode').value === 'navigate';
   const firefox = typeof chrome.runtime.getBrowserInfo === 'function';
   $('pause-redirects').disabled = navigation || firefox;
@@ -49,6 +63,7 @@ function updateMode() {
   if (navigation || firefox) $('pause-redirects').checked = false;
   const method = $('method').value;
   $('body').disabled = method === 'GET' || method === 'HEAD';
+  $('format-body').disabled = $('body').disabled || !['json', 'form'].includes($('body-type').value);
   $('mode-hint').textContent = navigation ? 'GET or form POST in the inspected page' : firefox ? 'Raw response preview · redirects followed automatically' : 'Raw request with a text response preview · 30s timeout';
 }
 function remember(field) {
@@ -63,7 +78,7 @@ function insert(text) {
 }
 function templateValues(entry) {
   const values = {};
-  for (const key of ['column_count', 'seconds', 'database', 'table', 'columns', 'file', 'host', 'port', 'path']) values[key] = $(`opt-${key.replaceAll('_', '-')}`).value;
+  for (const key of ['column_count', 'seconds', 'database', 'table', 'columns', 'file', 'host', 'port', 'path', 'value']) values[key] = $(`opt-${key.replaceAll('_', '-')}`).value;
   if (entry.template.includes('{{origin}}')) values.origin = new URL(normalizeUrl($('url').value)).origin;
   if (entry.template.includes('{{path}}') && (!values.path.startsWith('/') || /[?#\r\n]/.test(values.path))) throw new Error('Target path must start with / and have no query or fragment.');
   if (/\{\{(?:column_count|number_columns|null_columns)\}\}/.test(entry.template)) {
@@ -73,7 +88,7 @@ function templateValues(entry) {
   if (entry.template.includes('{{seconds}}')) {
     const delay = Number(values.seconds);
     if (!Number.isInteger(delay) || delay < 1 || delay > 59) throw new Error('Delay must be between 1 and 59 seconds.');
-    if (entry.section === 'MSSQL') values.seconds = String(delay).padStart(2, '0');
+    if (entry.category === 'SQL-MSSQL') values.seconds = String(delay).padStart(2, '0');
   }
   if (entry.template.includes('{{port}}')) {
     const port = Number(values.port);
@@ -107,7 +122,8 @@ function renderPayloads() {
         } else if (entry.target === 'url') {
           remember($('url')); $('url').value = text; $('url').focus(); saveDraft();
         } else insert($('encode-insert').checked ? encodeURIComponent(text) : text);
-        status(`Inserted ${entry.label} into ${labels[target.id]}.`);
+        const destination = entry.target === 'headers' ? 'headers' : entry.target === 'url' ? 'URL' : labels[target.id];
+        status(`Inserted ${entry.label} into ${destination}.`);
       } catch (error) { status(error.message, true); }
     });
     fragment.append(button);
@@ -137,6 +153,7 @@ async function renderHistory() {
 async function send() {
   if ($('send').disabled) return;
   try {
+    clearBodyError();
     const request = validateRequest(readRequest());
     pendingRedirect = null;
     $('follow-pane').open = false;
@@ -152,7 +169,10 @@ async function send() {
       status(`Response ${result.status} received.`);
     } else status(result.message);
     if (!$('history-pane').hidden) await renderHistory();
-  } catch (error) { status(error.message, true); }
+  } catch (error) {
+    if (error instanceof SyntaxError && $('body-type').value === 'json') showBodyError(`Invalid JSON: ${error.message}`);
+    else status(error.message, true);
+  }
   finally { $('send').disabled = false; }
 }
 
@@ -272,6 +292,19 @@ for (const id of editors) {
   $(id).addEventListener('focus', () => {target = $(id);});
   $(id).addEventListener('input', saveDraft);
 }
+$('body').addEventListener('input', clearBodyError);
+$('format-body').addEventListener('click', () => {
+  try {
+    const formatted = formatBody($('body-type').value, $('body').value);
+    remember($('body'));
+    $('body').value = formatted;
+    clearBodyError();
+    $('body').focus();
+    saveDraft();
+  } catch (error) {
+    showBodyError(`Cannot format body: ${error.message}`);
+  }
+});
 for (const id of ['method', 'mode', 'body-type']) $(id).addEventListener('change', () => {updateMode(); saveDraft();});
 $('pause-redirects').addEventListener('change', saveDraft);
 $('send').addEventListener('click', send);
@@ -298,7 +331,7 @@ $('fetch-headers').addEventListener('click', async () => {
   finally {button.disabled = false;}
 });
 $('header-preset').addEventListener('change', event => {
-  const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: HackTab/1.0', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
+  const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: HackTab/1.1', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
   const preset = presets[event.target.value];
   if (preset) {
     remember($('headers'));

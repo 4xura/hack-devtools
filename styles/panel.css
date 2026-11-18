@@ -11,3 +11,7 @@
 .request-options .redirect-option{gap:4px;color:var(--text)}.redirect-option input{margin:0}.redirect-pane{margin:12px 0;padding:12px;border:1px solid var(--accent);border-radius:7px;background:var(--accent-soft)}.redirect-heading{font-size:12px;font-weight:650}.redirect-target{display:flex;align-items:start;gap:8px;margin:7px 0;overflow-wrap:anywhere}.redirect-target code{min-width:0;white-space:normal;overflow-wrap:anywhere}.redirect-actions{display:flex;gap:8px;flex-wrap:wrap}.redirect-pane p{margin-top:8px}
 
 .header-tools{display:flex;align-items:center;gap:8px;margin-top:10px;padding:2px 0;min-height:34px}.header-tools button{flex:none;min-height:30px;padding:5px 12px;font-size:11px;line-height:18px}.header-status{flex:1;min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--muted);font-size:12px}.header-status[data-error=true]{color:var(--error)}.editor-block{min-width:0}.field-heading{flex-wrap:wrap}.field-heading label{flex:none}.scratch{margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+.field-error{margin:6px 0 0;color:var(--error);font-size:11px;line-height:1.4;overflow-wrap:anywhere}.editor-block textarea[aria-invalid=true]{border-color:var(--error)}
+.body-tools{display:flex;align-items:center;gap:8px;margin-top:10px;padding:2px 0;min-height:34px}.body-tools button{flex:none;min-height:30px;padding:5px 12px;font-size:11px;line-height:18px}
+.categories{max-height:none;overflow:visible}
+@media(min-width:801px){.payload-list{max-height:calc(100vh - 400px)}}

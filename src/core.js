@@ -31,7 +31,7 @@ export function parseForm(text) {
 }
 
 export function interpolate(template, values) {
-  const options = new Set(['column_count','number_columns','null_columns','seconds','database','table','columns','file','relative_file','host','port','selected','origin','path']);
+  const options = new Set(['column_count','number_columns','null_columns','seconds','database','table','columns','file','relative_file','host','port','selected','origin','path','value']);
   return template.replace(/\{\{([a-z_]+)\}\}/g, (literal, key) => {
     if (!options.has(key)) return literal;
     if (values[key] === undefined || String(values[key]).trim() === '') throw new Error(`Set the ${key.replaceAll('_', ' ')} option first.`);

@@ -46,6 +46,12 @@ export const TRANSFORMS = [
   ['hex-encode', 'Hex encode'], ['hex-decode', 'Hex decode'],
   ['html-encode', 'HTML entities'], ['html-decode', 'Decode HTML entities'],
   ['unicode-escape', 'Unicode escape'], ['unicode-unescape', 'Decode Unicode escapes'],
+  ['unicode-nfc', 'Unicode NFC'], ['unicode-nfd', 'Unicode NFD'],
+  ['unicode-nfkc', 'Unicode NFKC'], ['unicode-nfkd', 'Unicode NFKD'],
+  ['latin-o-greek', 'Latin o → Greek ο (U+03BF)'],
+  ['latin-o-cyrillic', 'Latin o → Cyrillic о (U+043E)'],
+  ['latin-o-fullwidth', 'Latin o → Fullwidth ｏ (U+FF4F)'],
+  ['latin-cyrillic-lookalikes', 'Latin a/c/e/o/p → Cyrillic lookalikes'],
   ['json-format', 'Format JSON'], ['json-minify', 'Minify JSON'], ['jwt-decode', 'Decode JWT (unverified)'],
   ['uppercase', 'Uppercase'], ['lowercase', 'Lowercase'], ['rot13', 'ROT13'],
   ['md5', 'MD5'], ['sha1', 'SHA-1'], ['sha256', 'SHA-256'], ['sha512', 'SHA-512'],
@@ -75,6 +81,14 @@ export async function transform(action, text) {
     });
     case 'unicode-escape': return text.split('').map(char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')).join('');
     case 'unicode-unescape': return text.replace(/\\u([\da-f]{4})/gi, (_, code) => String.fromCharCode(parseInt(code, 16)));
+    case 'unicode-nfc': return text.normalize('NFC');
+    case 'unicode-nfd': return text.normalize('NFD');
+    case 'unicode-nfkc': return text.normalize('NFKC');
+    case 'unicode-nfkd': return text.normalize('NFKD');
+    case 'latin-o-greek': return text.replace(/o/g, 'ο');
+    case 'latin-o-cyrillic': return text.replace(/o/g, 'о');
+    case 'latin-o-fullwidth': return text.replace(/o/g, 'ｏ');
+    case 'latin-cyrillic-lookalikes': return text.replace(/[aceop]/g, letter => ({a:'а',c:'с',e:'е',o:'о',p:'р'})[letter]);
     case 'json-format': return JSON.stringify(JSON.parse(text), null, 2);
     case 'json-minify': return JSON.stringify(JSON.parse(text));
     case 'jwt-decode': {

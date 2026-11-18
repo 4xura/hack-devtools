@@ -11,6 +11,9 @@ HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN 
 | `src/transforms.js` | Text encoders, decoders, and hashes |
 | `src/payloads.js` | Searchable text template catalog |
 | `src/payloads-extra.js` | SSTI, SSRF, and 403-bypass catalog entries |
+| `src/payloads-db.js` | Database-specific SQL and MongoDB snippets |
+| `src/payloads-curated.js` | Additional reference-based categories and snippets |
+| `src/body-format.js` | Explicit JSON and form-body formatting |
 | `styles/panel.css` | Responsive layout, system appearance, and explicit themes |
 | `scripts/build-firefox.js` | Firefox manifest, source copy, and ZIP packaging |
 
@@ -33,6 +36,8 @@ Per-tab session state survives service worker suspension. Tab closure removes ca
 ## Rendering
 
 Payloads, response text, error messages, and history URLs are rendered through text nodes or editor values. Templates are substituted as strings. Text transformations never use `eval` or insert untrusted HTML. SHA hashes use Web Crypto; MD5 uses a local UTF-8 implementation. JWT decoding reports that its contents are unverified.
+
+The body Format button uses a bundled JSON5 parser for JavaScript-style object notation, then serializes the result as strict JSON. Form fields are normalized with `URLSearchParams`. The formatting action is explicit, preserving deliberately malformed bodies until the user chooses to convert them. JSON validation errors are attached to the body editor.
 
 Only recognized option names are interpolated, preserving engine-native expressions such as `{{config}}`. Catalog entries may declare a header or URL destination. Header insertion performs a case-insensitive upsert to prevent duplicate override names; URL variants use the current origin and configured path. Ordinary payloads continue to insert at the active editor selection.
 
