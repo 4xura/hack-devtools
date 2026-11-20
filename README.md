@@ -84,4 +84,4 @@ Browser tests use isolated profiles and a loopback HTTP server. Set `CHROME_PATH
 
 For an authorized live environment that implements the reservation job example, set `HACK_DEVTOOLS_LIVE_ORIGIN` before `npm run test:browser` to exercise lookup, check-in, and job polling in addition to the local fixtures.
 
-This repository is private. Distribution is reserved for a future release.
+This repository is private. Chrome and Firefox archives are published through its GitHub Releases page.
