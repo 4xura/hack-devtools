@@ -99,11 +99,12 @@ export function validateRequest(request) {
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(request.method)) throw new Error('Unsupported HTTP method.');
   if (!['navigate', 'fetch'].includes(request.mode)) throw new Error('Unknown request mode.');
   if (!['form', 'json', 'xml', 'text'].includes(request.bodyType)) throw new Error('Unknown body type.');
+  if (request.credentials !== undefined && !['include','omit','same-origin'].includes(request.credentials)) throw new Error('Unknown credentials setting.');
   if (request.pauseRedirects !== undefined && typeof request.pauseRedirects !== 'boolean') throw new Error('Invalid redirect setting.');
   if (request.mode === 'navigate' && request.pauseRedirects) throw new Error('Pause on redirects requires Fetch response delivery.');
   if (request.mode === 'navigate' && (request.method !== 'GET' && (request.method !== 'POST' || request.bodyType !== 'form'))) throw new Error('Navigate supports GET and form POST. Select Fetch for raw bodies and other methods.');
   if (request.bodyType === 'json' && !['GET', 'HEAD'].includes(request.method)) JSON.parse(request.body || '');
-  if (!Number.isInteger(request.tabId) || request.tabId < 0) throw new Error('Open HackTab from the inspected page’s DevTools.');
+  if (!Number.isInteger(request.tabId) || request.tabId < 0) throw new Error('Open Hack-DevTools from the inspected page’s DevTools.');
   return {...request, url, headers: parseHeaders(request.headersText || '')};
 }
 

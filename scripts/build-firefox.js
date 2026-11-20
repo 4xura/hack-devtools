@@ -15,7 +15,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'u
 delete manifest.minimum_chrome_version;
 manifest.background = {scripts: ['src/background.js'], type: 'module'};
 manifest.browser_specific_settings = {gecko: {
-  id: 'hacktab@axura.dev',
+  id: 'hack-devtools@axura.dev',
   strict_min_version: '142.0',
   data_collection_permissions: {required: ['none']}
 }};
@@ -25,11 +25,11 @@ for (const file of fs.readdirSync(path.join(target, 'src'))) {
   const source = path.join(target, 'src', file);
   fs.writeFileSync(source, fs.readFileSync(source, 'utf8').replace(/\bchrome\./g, 'browser.'));
 }
-const packagePath = path.join(dist, `hacktab-firefox-${manifest.version}.zip`);
+const packagePath = path.join(dist, `hack-devtools-firefox-${manifest.version}.zip`);
 if (process.platform !== 'win32') throw new Error('Firefox packaging currently requires PowerShell on Windows.');
 const entries = fs.readdirSync(target).map(name => path.join(target, name));
-const result = spawnSync('powershell.exe', ['-NoProfile','-Command', '$items = $env:HACKTAB_PACKAGE_INPUTS | ConvertFrom-Json; Compress-Archive -LiteralPath $items -DestinationPath $env:HACKTAB_PACKAGE_OUTPUT -Force'], {
-  cwd: target, env: {...process.env, HACKTAB_PACKAGE_INPUTS: JSON.stringify(entries), HACKTAB_PACKAGE_OUTPUT: packagePath}, encoding: 'utf8', windowsHide: true
+const result = spawnSync('powershell.exe', ['-NoProfile','-Command', '$items = $env:HACK_DEVTOOLS_PACKAGE_INPUTS | ConvertFrom-Json; Compress-Archive -LiteralPath $items -DestinationPath $env:HACK_DEVTOOLS_PACKAGE_OUTPUT -Force'], {
+  cwd: target, env: {...process.env, HACK_DEVTOOLS_PACKAGE_INPUTS: JSON.stringify(entries), HACK_DEVTOOLS_PACKAGE_OUTPUT: packagePath}, encoding: 'utf8', windowsHide: true
 });
 if (result.status !== 0) throw new Error(result.stderr || result.stdout);
 console.log(target);

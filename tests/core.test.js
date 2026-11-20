@@ -5,6 +5,7 @@ import {normalizeUrl, parseHeaders, parseForm, interpolate, columnList, replaceS
 import {transform, md5} from '../src/transforms.js';
 import {PAYLOADS, CATEGORIES, searchPayloads} from '../src/payloads.js';
 import {formatBody} from '../src/body-format.js';
+import {importRequest} from '../src/request-import.js';
 
 test('URLs normalize without enabling executable or privileged schemes', () => {
   assert.equal(normalizeUrl('example.com/a\n?x=1'), 'https://example.com/a?x=1');
@@ -121,4 +122,42 @@ test('body formatter converts DevTools object notation and line-based form data'
   assert.equal(formatBody('form','name=hello+world&name=x%26y'),'name=hello+world&name=x%26y');
   assert.throws(()=>formatBody('json','{a: process.exit(1)}'));
   assert.throws(()=>formatBody('json','{a: NaN}'));
+});
+test('loads Chrome cURL, PowerShell, and Fetch copies without executing them', () => {
+  const curl = String.raw`curl --url 'http\://example\.com/api/check-in' \
+  -H 'Accept: \*/\*' -H 'Connection: keep-alive' -H 'Content-Type: application/json' \
+  --data-raw '{"reservation":"A7K-204"}' --insecure`;
+  const curlResult = importRequest(curl);
+  assert.equal(curlResult.request.url, 'http://example.com/api/check-in');
+  assert.equal(curlResult.request.method, 'POST');
+  assert.equal(curlResult.request.bodyType, 'json');
+  assert.equal(curlResult.request.body, '{"reservation":"A7K-204"}');
+  assert.equal(curlResult.request.credentials, 'omit');
+  assert.match(curlResult.request.headersText, /Accept: \*\/\*/);
+  assert(!/Connection:/.test(curlResult.request.headersText));
+  assert(curlResult.warnings.some(warning => warning.includes('--insecure')));
+
+  const powershell = [
+    '$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession',
+    '$session.UserAgent = "Test/1.0"',
+    'Invoke-WebRequest -Uri "http\\://example\\.com/api/check-in" `',
+    '-Method "POST" -WebSession $session `',
+    '-Headers @{"Accept"="*/*" "Origin"="http://example.com"} `',
+    '-ContentType "application/json" `',
+    '-Body "{`"reservation`":`"A7K-204`"}"'
+  ].join('\n');
+  const psResult = importRequest(powershell);
+  assert.equal(psResult.request.method, 'POST');
+  assert.equal(psResult.request.url, 'http://example.com/api/check-in');
+  assert.equal(psResult.request.body, '{"reservation":"A7K-204"}');
+  assert.match(psResult.request.headersText, /User-Agent: Test\/1\.0/);
+  assert.match(psResult.request.headersText, /Content-Type: application\/json/);
+
+  const fetchSource = `fetch("http://example.com/api/check-in", ${JSON.stringify({headers:{accept:'*/*','content-type':'application/json'},referrer:'http://example.com/reservations',body:'{"reservation":"A7K-204"}',method:'POST',mode:'cors',credentials:'omit'})});`;
+  const fetchResult = importRequest(fetchSource);
+  assert.equal(fetchResult.request.body, '{"reservation":"A7K-204"}');
+  assert.equal(fetchResult.request.credentials, 'omit');
+  assert.match(fetchResult.request.headersText, /Referer: http:\/\/example\.com\/reservations/);
+  assert.throws(() => importRequest('fetch(getUrl(), {method:"POST"})'));
+  assert.throws(() => importRequest("curl https://example.com --data-binary @body.json"));
 });

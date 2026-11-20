@@ -2,7 +2,7 @@
 
 The SSTI and SSRF catalog draws on standard test syntax and examples in [PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings), including its [Server Side Template Injection](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Template%20Injection) and [Server Side Request Forgery](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Request%20Forgery) references. The applicable license is reproduced below.
 
-403 path and header test families were informed by [403bypasser.py](https://github.com/yunemse48/403bypasser/blob/master/403bypasser.py). HackTab implements its own text catalog and insertion behavior; it does not bundle or run that Python scanner.
+403 path and header test families were informed by [403bypasser.py](https://github.com/yunemse48/403bypasser/blob/master/403bypasser.py). Hack-DevTools implements its own text catalog and insertion behavior; it does not bundle or run that Python scanner.
 
 ## PayloadsAllTheThings — MIT License
 
@@ -28,7 +28,7 @@ SOFTWARE.
 
 ## JSON5 — MIT License
 
-HackTab bundles JSON5 2.2.3 for explicit request-body formatting. Source: https://github.com/json5/json5
+Hack-DevTools bundles JSON5 2.2.3 for explicit request-body formatting. Source: https://github.com/json5/json5
 
 Copyright (c) 2012-2018 Aseem Kishore, and [others].
 

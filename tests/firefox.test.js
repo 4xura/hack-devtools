@@ -67,14 +67,18 @@ setTimeout(async()=>{
     document.getElementById('body').value='{reservation: "A7K-204", family_name: "Lee"}';
     document.getElementById('format-body').click();
     const formattedBody=JSON.parse(document.getElementById('body').value);
+    document.getElementById('load-request').click();
+    document.getElementById('import-input').value="curl --url '"+smokeBase+"/post' -H 'Content-Type: application/json' --data-raw '"+JSON.stringify({a:1})+"'";
+    document.getElementById('import-apply').click();
+    const importedRequest=document.getElementById('url').value===smokeBase+'/post' && document.getElementById('method').value==='POST' && document.getElementById('credentials').value==='omit' && !document.getElementById('import-dialog').open;
     const send=(action,request)=>browser.runtime.sendMessage({action,tabId,request});
     const pageHeaders=await browser.runtime.sendMessage({action:'fetch-headers',tabId});
     const get=await send('execute',{tabId,url:smokeBase+'/get',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:''});
-    const post=await send('execute',{tabId,url:smokeBase+'/post',method:'POST',mode:'fetch',bodyType:'json',body:'{"a":1}',headersText:'Content-Type: application/json\\nX-HackTab-Test: firefox\\nUser-Agent: HackTab-Firefox-Test/1.0\\nCookie: hacktab_firefox=ok'});
+    const post=await send('execute',{tabId,url:smokeBase+'/post',method:'POST',mode:'fetch',bodyType:'json',body:'{"a":1}',headersText:'Content-Type: application/json\\nX-Hack-DevTools-Test: firefox\\nUser-Agent: Hack-DevTools-Firefox-Test/1.0\\nCookie: hack-devtools_firefox=ok'});
     const manual=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:'',pauseRedirects:true});
     const redirect=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:''});
     const nav=await send('execute',{tabId,url:smokeBase+'/nav',method:'GET',mode:'navigate',bodyType:'text',body:'',headersText:''});
-    result={pageHeaders,get,post,manual,redirect,nav,manualDisabled:document.getElementById('pause-redirects').disabled,bodyErrorBelow,bodyErrorCleared,formattedBody};
+    result={pageHeaders,get,post,manual,redirect,nav,manualDisabled:document.getElementById('pause-redirects').disabled,bodyErrorBelow,bodyErrorCleared,formattedBody,importedRequest};
   } catch(error) {result={error:'panel: '+error.message};}
   await fetch(smokeBase+'/report',{method:'POST',body:JSON.stringify(result)});
 },1200);
@@ -94,16 +98,17 @@ try{
   assert.equal(outcome.bodyErrorBelow,true);
   assert.equal(outcome.bodyErrorCleared,true);
   assert.deepEqual(outcome.formattedBody,{reservation:'A7K-204',family_name:'Lee'});
+  assert.equal(outcome.importedRequest,true);
   assert.equal(outcome.get.result.status,200);
   assert.equal(outcome.post.result.status,200);
   assert.equal(outcome.redirect.result.status,200);
   assert.equal(outcome.redirect.result.url,base+'/final');
-  assert(requests.some(request=>request.url==='/post'&&request.method==='POST'&&request.body==='{"a":1}'&&request.headers['x-hacktab-test']==='firefox'));
+  assert(requests.some(request=>request.url==='/post'&&request.method==='POST'&&request.body==='{"a":1}'&&request.headers['x-hack-devtools-test']==='firefox'));
   const postRequest=requests.find(request=>request.url==='/post');
-  assert.equal(postRequest.headers['user-agent'],'HackTab-Firefox-Test/1.0');
-  assert.equal(postRequest.headers.cookie,'hacktab_firefox=ok');
+  assert.equal(postRequest.headers['user-agent'],'Hack-DevTools-Firefox-Test/1.0');
+  assert.equal(postRequest.headers.cookie,'hack-devtools_firefox=ok');
   assert(requests.some(request=>request.url==='/nav'&&request.method==='GET'));
-  console.log('PASS: Firefox loaded HackTab, captured page headers, sent GET/POST with custom headers, followed 302, and navigated a tab.');
+  console.log('PASS: Firefox loaded Hack-DevTools, captured page headers, sent GET/POST with custom headers, followed 302, and navigated a tab.');
 }finally{
   clearTimeout(watchdog);
   if (process.platform === 'win32') spawnSync('taskkill.exe',['/PID',String(webExt.pid),'/T','/F'],{stdio:'ignore'});

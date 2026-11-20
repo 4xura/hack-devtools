@@ -100,7 +100,7 @@ async function fetchRequest(request, captureHeaders = false) {
     const response = await fetch(request.url, {
       method: request.method,
       ...(hasBody ? {body: request.body || ''} : {}),
-      credentials: 'include', cache: 'no-store', redirect: request.pauseRedirects ? 'manual' : 'follow', signal: AbortSignal.timeout(30000)
+      credentials: request.credentials || 'include', cache: 'no-store', redirect: request.pauseRedirects ? 'manual' : 'follow', signal: AbortSignal.timeout(30000)
     });
     if (response.type === 'opaqueredirect') {
       const hop = activeRedirectCapture?.hop;

@@ -1,1 +1,1 @@
-chrome.devtools.panels.create('HackTab', 'assets/logo.png', 'panel.html');
+chrome.devtools.panels.create('Hack-DevTools', 'assets/logo.png', 'panel.html');

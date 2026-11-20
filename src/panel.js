@@ -2,6 +2,7 @@ import {columnList, interpolate, validateRequest, normalizeUrl, mergeHeaders, re
 import {TRANSFORMS, transform} from './transforms.js';
 import {PAYLOADS, CATEGORIES, searchPayloads} from './payloads.js';
 import {formatBody} from './body-format.js';
+import {importRequest} from './request-import.js';
 
 const $ = id => document.getElementById(id);
 const tabId = chrome.devtools?.inspectedWindow?.tabId ?? -1;
@@ -37,11 +38,11 @@ async function message(action, extra = {}) {
   return response.result;
 }
 function readRequest() {
-  return {tabId, url: $('url').value, method: $('method').value, mode: $('mode').value, bodyType: $('body-type').value, body: $('body').value, headersText: $('headers').value, pauseRedirects: $('pause-redirects').checked};
+  return {tabId, url: $('url').value, method: $('method').value, mode: $('mode').value, bodyType: $('body-type').value, body: $('body').value, headersText: $('headers').value, credentials: $('credentials').value, pauseRedirects: $('pause-redirects').checked};
 }
 function writeRequest(request) {
   clearBodyError();
-  for (const [field, key] of [['url', 'url'], ['method', 'method'], ['mode', 'mode'], ['body-type', 'bodyType'], ['body', 'body'], ['headers', 'headersText']]) {
+  for (const [field, key] of [['url', 'url'], ['method', 'method'], ['mode', 'mode'], ['body-type', 'bodyType'], ['body', 'body'], ['headers', 'headersText'], ['credentials', 'credentials']]) {
     if (request[key] !== undefined) $(field).value = request[key];
   }
   $('pause-redirects').checked = !!request.pauseRedirects;
@@ -57,6 +58,7 @@ function saveDraft() {
 function updateMode() {
   if ($('body-type').value !== 'json') clearBodyError();
   const navigation = $('mode').value === 'navigate';
+  $('credentials').disabled = navigation;
   const firefox = typeof chrome.runtime.getBrowserInfo === 'function';
   $('pause-redirects').disabled = navigation || firefox;
   $('pause-redirects').title = firefox ? 'Firefox follows extension Fetch redirects automatically; intermediate Location is unavailable.' : '';
@@ -305,9 +307,29 @@ $('format-body').addEventListener('click', () => {
     showBodyError(`Cannot format body: ${error.message}`);
   }
 });
-for (const id of ['method', 'mode', 'body-type']) $(id).addEventListener('change', () => {updateMode(); saveDraft();});
+for (const id of ['method', 'mode', 'body-type', 'credentials']) $(id).addEventListener('change', () => {updateMode(); saveDraft();});
 $('pause-redirects').addEventListener('change', saveDraft);
 $('send').addEventListener('click', send);
+$('load-request').addEventListener('click', () => {
+  $('import-error').hidden = true;
+  $('import-dialog').showModal();
+  $('import-input').focus();
+});
+$('import-close').addEventListener('click', () => $('import-dialog').close());
+$('import-cancel').addEventListener('click', () => $('import-dialog').close());
+$('import-input').addEventListener('input', () => {$('import-error').hidden = true;});
+$('import-apply').addEventListener('click', () => {
+  try {
+    const {request, warnings} = importRequest($('import-input').value);
+    writeRequest(request);
+    $('import-dialog').close();
+    $('url').focus();
+    status(warnings.length ? `Request loaded. ${warnings.join('; ')}` : 'Request loaded. Review it before sending.', false, true);
+  } catch (error) {
+    $('import-error').textContent = error.message;
+    $('import-error').hidden = false;
+  }
+});
 $('load').addEventListener('click', loadPage);
 $('clear').addEventListener('click', async () => {
   try {
@@ -331,7 +353,7 @@ $('fetch-headers').addEventListener('click', async () => {
   finally {button.disabled = false;}
 });
 $('header-preset').addEventListener('change', event => {
-  const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: HackTab/1.1', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
+  const presets = {referer: 'Referer: https://example.com/', 'user-agent': 'User-Agent: Hack-DevTools/1.2', cookie: 'Cookie: name=value', authorization: 'Authorization: Bearer TOKEN', 'content-type': 'Content-Type: application/json', forwarded: 'X-Forwarded-For: 127.0.0.1'};
   const preset = presets[event.target.value];
   if (preset) {
     remember($('headers'));
@@ -434,7 +456,7 @@ async function initialize() {
   }
   if (stored[draftKey]) {writeRequest(stored[draftKey]); $('scratch').value = stored[draftKey].scratch || '';}
   else if (tabId >= 0) await loadPage();
-  if (tabId < 0) status('Open a page’s DevTools and select the HackTab panel.', true);
+  if (tabId < 0) status('Open a page’s DevTools and select the Hack-DevTools panel.', true);
   updateMode(); renderPayloads(); document.documentElement.dataset.ready = 'true';
 }
 initialize().catch(error => status(error.message, true));

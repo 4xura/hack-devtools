@@ -1,6 +1,6 @@
 # Architecture
 
-HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN assets, or injected page listeners. The Chrome variant runs from the repository root. `scripts/build-firefox.js` copies the shared source and assets into `dist/firefox-unpacked`, translates `chrome` API calls to Firefox's Promise-based `browser` namespace, and writes a Firefox manifest. Generated files are ignored by Git.
+Hack-DevTools uses native ES modules and Manifest V3. It has no runtime packages, CDN assets, or injected page listeners. `scripts/package.js` builds a small Chrome extension under `dist/chrome-unpacked`. `scripts/build-firefox.js` copies the shared source and assets into `dist/firefox-unpacked`, translates `chrome` API calls to Firefox's Promise-based `browser` namespace, and writes a Firefox manifest. Generated files are ignored by Git.
 
 | File | Responsibility |
 | --- | --- |
@@ -14,6 +14,7 @@ HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN 
 | `src/payloads-db.js` | Database-specific SQL and MongoDB snippets |
 | `src/payloads-curated.js` | Additional reference-based categories and snippets |
 | `src/body-format.js` | Explicit JSON and form-body formatting |
+| `src/request-import.js` | Parses copied cURL, PowerShell, and Fetch requests as text |
 | `styles/panel.css` | Responsive layout, system appearance, and explicit themes |
 | `scripts/build-firefox.js` | Firefox manifest, source copy, and ZIP packaging |
 
@@ -22,6 +23,8 @@ HackTab uses native ES modules and Manifest V3. It has no runtime packages, CDN 
 The panel sends structured messages to the Chrome service worker or Firefox background page. Only messages from the extension’s own `panel.html` are accepted. Validation is repeated in the background context. Per-tab queues serialize request changes; a separate queue serializes Fetch header rules.
 
 Navigation uses `tabs.update` for GET and `scripting.executeScript` with structured arguments for form POST. The injected function creates hidden inputs in the isolated extension world and calls the native form submit method, including when a field is named `submit`.
+
+Request import parses literal copied commands without evaluating shell, PowerShell, or JavaScript. It fills the existing composer fields and reports options that the browser cannot reproduce. Fetch credentials are stored with the request and passed to the browser Fetch API.
 
 Header modifications use declarative session rules. Navigation rules are constrained by tab, destination hostname, and main-frame resource type. Fetch rules use the extension initiator, destination hostname, and request resource type, and are removed in a `finally` block. Automatic redirects can be followed by Chrome; overrides do not match other destination hostnames. Fetch streams responses into a bounded text preview.
 

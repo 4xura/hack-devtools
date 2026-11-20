@@ -92,10 +92,10 @@ add('CRLF', 'Newline encodings', [
   ['Literal CRLF', '\r\n'], ['Unicode line separator', '%E2%80%A8']
 ]);
 add('CRLF', 'Header probes', [
-  ['Injected marker header', '%0d%0aX-HackTab: probe'],
+  ['Injected marker header', '%0d%0aX-Hack-DevTools: probe'],
   ['Injected Location header', '%0d%0aLocation:%20https://{{host}}/'],
-  ['Injected cookie header', '%0d%0aSet-Cookie:%20hacktab=probe'],
-  ['Double-encoded marker', '%250d%250aX-HackTab:%20probe']
+  ['Injected cookie header', '%0d%0aSet-Cookie:%20hack-devtools=probe'],
+  ['Double-encoded marker', '%250d%250aX-Hack-DevTools:%20probe']
 ]);
 
 add('CSS', 'Imports and style markers', [
@@ -211,8 +211,8 @@ add('Upload', 'Content-Type headers', [
   ['JPEG media type', 'Content-Type: image/jpeg']
 ], 'headers');
 add('Upload', 'Text file contents', [
-  ['SVG marker', '<svg xmlns="http://www.w3.org/2000/svg"><text>HackTab</text></svg>'],
-  ['HTML marker', '<!doctype html><title>HackTab upload</title><p>Upload probe</p>'],
+  ['SVG marker', '<svg xmlns="http://www.w3.org/2000/svg"><text>Hack-DevTools</text></svg>'],
+  ['HTML marker', '<!doctype html><title>Hack-DevTools upload</title><p>Upload probe</p>'],
   ['Apache handler directive', 'AddType application/x-httpd-php .jpg']
 ]);
 

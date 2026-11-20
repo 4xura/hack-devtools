@@ -28,7 +28,7 @@ const server = http.createServer((request, response) => {
     if (request.url === '/large') {response.setHeader('Content-Type','text/plain'); response.end('x'.repeat(1048600)); return;}
     if (request.url === '/json') {response.setHeader('Content-Type','application/json'); response.end(JSON.stringify({received:body})); return;}
     response.setHeader('Content-Type','text/html; charset=utf-8');
-    response.end('<!doctype html><title>Local test</title><body>HackTab local test</body>');
+    response.end('<!doctype html><title>Local test</title><body>Hack-DevTools local test</body>');
   });
 });
 const child = spawn(chromePath, ['--headless=new','--no-first-run','--no-default-browser-check','--disable-background-networking','--remote-debugging-pipe','--enable-unsafe-extension-debugging','--user-data-dir='+profile,'about:blank'], {windowsHide:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
@@ -78,8 +78,11 @@ async function run(){
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   base='http://127.0.0.1:'+server.address().port;
   console.log('Chrome:',(await call('Browser.getVersion')).product);
-  const {id}=await call('Extensions.loadUnpacked',{path:root});
-  console.log('PASS: Chrome loaded HackTab:',id);
+  const extensionLoadStarted=performance.now();
+  const extensionPath=process.env.HACK_DEVTOOLS_EXTENSION_PATH || path.join(root,'dist','chrome-unpacked');
+  const {id}=await call('Extensions.loadUnpacked',{path:extensionPath});
+  if(process.env.HACK_DEVTOOLS_BENCH) console.log('BENCH extension load ms',Math.round(performance.now()-extensionLoadStarted));
+  console.log('PASS: Chrome loaded Hack-DevTools:',id);
   inspected=await page(base+'/start');
   await until(()=>requests.find(request=>request.url==='/start'),'initial page');
   // Supply the inspected tab ID normally provided to a DevTools panel.
@@ -91,17 +94,28 @@ async function run(){
   await call('Page.addScriptToEvaluateOnNewDocument',{source:`chrome.devtools={inspectedWindow:{tabId:${tabId}}};`},panel.sessionId);
   await call('Page.reload',{},panel.sessionId);
   await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'panel reload');
+  if(process.env.HACK_DEVTOOLS_BENCH){
+    const timings=[];
+    for(let round=0;round<6;round++){
+      await evaluate(panel.sessionId,"delete document.documentElement.dataset.ready");
+      const started=performance.now();
+      await call('Page.reload',{},panel.sessionId);
+      await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'bench panel reload');
+      timings.push(Math.round(performance.now()-started));
+    }
+    console.log('BENCH panel reload ms',JSON.stringify(timings));
+  }
   const defaults={tabId,url:base+'/get',method:'GET',mode:'navigate',bodyType:'form',body:'',headersText:''};
-  const headers='Referer: https://request-test.invalid/source\nUser-Agent: HackTab-Test/1.0\nCookie: hacktab_test=ok';
+  const headers='Referer: https://request-test.invalid/source\nUser-Agent: Hack-DevTools-Test/1.0\nCookie: hack-devtools_test=ok';
   async function execute(overrides){return rpc('execute',{request:{...defaults,...overrides}});}
   async function getRequest(route){return until(()=>requests.find(request=>request.url===route),route);}
   await execute({headersText:headers});
   const get=await getRequest('/get');
-  assert.equal(get.headers['user-agent'],'HackTab-Test/1.0');
+  assert.equal(get.headers['user-agent'],'Hack-DevTools-Test/1.0');
   assert.equal(get.headers.referer,'https://request-test.invalid/source');
-  assert.equal(get.headers.cookie,'hacktab_test=ok');
+  assert.equal(get.headers.cookie,'hack-devtools_test=ok');
   const other=await page(base+'/other');
-  assert.notEqual((await getRequest('/other')).headers['user-agent'],'HackTab-Test/1.0');
+  assert.notEqual((await getRequest('/other')).headers['user-agent'],'Hack-DevTools-Test/1.0');
   await until(()=>evaluate(inspected.sessionId,"document.readyState==='complete'"),'GET complete');
   await execute({url:base+'/post',method:'POST',body:'submit=ok&name=hello+world&repeat=one&repeat=two&encoded=a%26b&empty=&utf8=%E2%9C%93',headersText:headers});
   const post=await getRequest('/post');
@@ -115,11 +129,11 @@ async function run(){
 
   const fetched=await execute({url:base+'/json',mode:'fetch',method:'PATCH',bodyType:'json',body:'{"value":"✓"}',headersText:headers+'\nX-Probe: raw'});
   const raw=await getRequest('/json');
-  assert.equal(raw.method,'PATCH'); assert.equal(raw.body,'{"value":"✓"}'); assert.equal(raw.headers['content-type'],'application/json'); assert.equal(raw.headers['x-probe'],'raw'); assert.equal(raw.headers.cookie,'hacktab_test=ok'); assert.equal(raw.headers['user-agent'],'HackTab-Test/1.0');
+  assert.equal(raw.method,'PATCH'); assert.equal(raw.body,'{"value":"✓"}'); assert.equal(raw.headers['content-type'],'application/json'); assert.equal(raw.headers['x-probe'],'raw'); assert.equal(raw.headers.cookie,'hack-devtools_test=ok'); assert.equal(raw.headers['user-agent'],'Hack-DevTools-Test/1.0');
   assert.equal(fetched.status,200); assert.equal(JSON.parse(fetched.body).received,raw.body);
   await execute({url:base+'/redirect',mode:'fetch',headersText:headers+'\nX-Probe: redirect'});
   const redirected=await getRequest('/redirected');
-  assert.notEqual(redirected.headers['user-agent'],'HackTab-Test/1.0');
+  assert.notEqual(redirected.headers['user-agent'],'Hack-DevTools-Test/1.0');
   assert(!redirected.headers['x-probe']); assert(!redirected.headers.cookie);
   const postRedirect=await execute({url:base+'/redirect-post',mode:'fetch',method:'POST',bodyType:'json',body:'{"probe":true}',headersText:'Content-Type: application/json'});
   assert.equal(postRedirect.redirected,true);
@@ -143,7 +157,7 @@ async function run(){
 
   await rpc('reset-headers',{tabId});
   await call('Page.navigate',{url:base+'/reset'},inspected.sessionId);
-  assert.notEqual((await getRequest('/reset')).headers['user-agent'],'HackTab-Test/1.0');
+  assert.notEqual((await getRequest('/reset')).headers['user-agent'],'Hack-DevTools-Test/1.0');
   const history=await rpc('history',{tabId});
   assert(history.length>=6);
   await call('ServiceWorker.enable',{},inspected.sessionId); await call('ServiceWorker.stopAllWorkers',{},inspected.sessionId);
@@ -174,6 +188,8 @@ async function run(){
   assert(authGet.headers.cookie.includes('header_fetch_test=session'));
   assert(/authorization: Bearer local-header-test/i.test(authHeaders.headersText));
   assert(/header_fetch_test=session/.test(authHeaders.headersText));
+  await execute({url:base+'/omit-cookies',mode:'fetch',credentials:'omit',headersText:''});
+  assert.equal((await getRequest('/omit-cookies')).headers.cookie,undefined);
   await evaluate(inspected.sessionId,"location.hash='section'");
   const hashHeaders=await rpc('fetch-headers',{tabId});
   assert(/authorization: Bearer local-header-test/i.test(hashHeaders.headersText));
@@ -224,6 +240,41 @@ async function run(){
   await evaluate(panel.sessionId,"(() => {document.getElementById('scratch').focus();document.getElementById('scratch').value='logo';document.getElementById('transform').value='latin-o-greek';document.getElementById('apply-transform').click();})()");
   await until(()=>evaluate(panel.sessionId,"document.getElementById('scratch').value==='lοgο'"),'Unicode substitution');
   console.log('PASS: New category tabs insert CORS headers and SQL snippets; Unicode transform edits selected text');
+
+  const copiedCurl=`curl --url '${base}/imported-curl' -H 'Content-Type: application/json' -H 'Connection: keep-alive' -H 'X-Imported: yes' --data-raw '{"x":1}' --insecure`;
+  await evaluate(panel.sessionId,`(() => {document.getElementById('load-request').click();document.getElementById('import-input').value=${JSON.stringify(copiedCurl)};})()`);
+  const importScreenshot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
+  fs.writeFileSync(path.join(output,'hack-devtools-load-request.png'),Buffer.from(importScreenshot.data,'base64'));
+  await evaluate(panel.sessionId,"document.getElementById('import-apply').click()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('import-dialog').open"),false);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/imported-curl');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('method').value"),'POST');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body-type').value"),'json');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('credentials').value"),'omit');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value.includes('X-Imported: yes')"),true);
+  assert.equal(requests.some(request=>request.url==='/imported-curl'),false);
+  await evaluate(panel.sessionId,"(() => {document.getElementById('load-request').click();document.getElementById('import-input').value='curl --url';document.getElementById('import-apply').click();})()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('import-dialog').open"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('import-error').hidden"),false);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/imported-curl');
+  await evaluate(panel.sessionId,"document.getElementById('import-cancel').click()");
+  const copiedFetch=`fetch(${JSON.stringify(base+'/imported-fetch')}, ${JSON.stringify({method:'POST',headers:{'content-type':'application/json'},body:'{"x":2}',credentials:'omit',referrer:base+'/start'})});`;
+  await evaluate(panel.sessionId,`(() => {document.getElementById('load-request').click();document.getElementById('import-input').value=${JSON.stringify(copiedFetch)};document.getElementById('import-apply').click();})()`);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/imported-fetch');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('credentials').value"),'omit');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value.includes('Referer:')"),true);
+  const copiedPowerShell=[
+    '$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession',
+    '$session.UserAgent = "Hack-DevTools-Test/1.0"',
+    `Invoke-WebRequest -Uri "${base}/imported-powershell" ` + '`',
+    '-Method "POST" -ContentType "application/json" `',
+    '-Body "{`"x`":3}"'
+  ].join('\n');
+  await evaluate(panel.sessionId,`(() => {document.getElementById('load-request').click();document.getElementById('import-input').value=${JSON.stringify(copiedPowerShell)};document.getElementById('import-apply').click();})()`);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/imported-powershell');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'{"x":3}');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value.includes('User-Agent: Hack-DevTools-Test/1.0')"),true);
+  console.log('PASS: Load request imports cURL, Fetch, and PowerShell; parse errors preserve the editor');
 
   await evaluate(panel.sessionId,`(() => {
     const set=(id,value)=>{const field=document.getElementById(id);field.value=value;field.dispatchEvent(new Event('change'));};
@@ -325,7 +376,7 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('follow-pane').hidden"),true);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('open-result').hidden"),true);
   const redirectShot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
-  fs.writeFileSync(path.join(output,'hacktab-manual-redirect.png'),Buffer.from(redirectShot.data,'base64'));
+  fs.writeFileSync(path.join(output,'hack-devtools-manual-redirect.png'),Buffer.from(redirectShot.data,'base64'));
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-method').textContent"),'GET');
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-url').textContent"),base+'/redirect-post-final');
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('redirect-tab').disabled"),false);
@@ -384,8 +435,8 @@ async function run(){
   await until(()=>evaluate(inspected.sessionId,`location.href===${JSON.stringify(base+'/chain/end')}`),'chain tab destination');
   console.log('PASS: Multi-hop redirect chooses Fetch, then tab navigation');
 
-  if (process.env.HACKTAB_LIVE_ORIGIN) {
-    const origin=process.env.HACKTAB_LIVE_ORIGIN.replace(/\/$/,'');
+  if (process.env.HACK_DEVTOOLS_LIVE_ORIGIN) {
+    const origin=process.env.HACK_DEVTOOLS_LIVE_ORIGIN.replace(/\/$/,'');
     const lookup=await execute({url:origin+'/api/reservations/lookup',method:'POST',mode:'fetch',bodyType:'json',body:'{"reservation":"A7K-204","family_name":"Lee"}',headersText:'Content-Type: application/json'});
     assert.equal(lookup.status,200);
     const checkin=await execute({url:origin+'/api/check-in',method:'POST',mode:'fetch',bodyType:'json',body:'{"reservation":"A7K-204","family_name":"Lee","receipt_layout":"standard.ticket"}',headersText:'Content-Type: application/json'});
@@ -410,7 +461,7 @@ async function run(){
   for(const theme of ['light','dark']){
     await evaluate(panel.sessionId,`document.getElementById('theme').value='${theme}';document.getElementById('theme').dispatchEvent(new Event('change'));`);
     const shot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
-    fs.writeFileSync(path.join(output,`hacktab-${theme}.png`),Buffer.from(shot.data,'base64'));
+    fs.writeFileSync(path.join(output,`hack-devtools-${theme}.png`),Buffer.from(shot.data,'base64'));
   }
   for (const width of [420,600,820,1280]) {
     await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
@@ -429,9 +480,22 @@ async function run(){
   await call('Emulation.setDeviceMetricsOverride',{width:600,height:900,deviceScaleFactor:1,mobile:false},panel.sessionId);
   assert.equal(await evaluate(panel.sessionId,'document.documentElement.scrollWidth<=innerWidth'),true);
   const narrow=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
-  fs.writeFileSync(path.join(output,'hacktab-narrow.png'),Buffer.from(narrow.data,'base64'));
+  fs.writeFileSync(path.join(output,'hack-devtools-narrow.png'),Buffer.from(narrow.data,'base64'));
   assert.equal(exceptions.length,0,JSON.stringify(exceptions));
   console.log('PASS: Responsive layout without horizontal overflow; light/dark screenshots saved under work/');
 }
 try{await run();}catch(error){console.error('FAIL:',error.stack); if(exceptions.length) console.error(JSON.stringify(exceptions)); process.exitCode=1;}
-finally{await call('Browser.close').catch(()=>child.kill()); server.close();}
+finally{
+  await call('Browser.close').catch(()=>child.kill());
+  server.close();
+  await new Promise(resolve=>{
+    if(child.exitCode!==null){resolve();return;}
+    const timer=setTimeout(resolve,2000);
+    child.once('exit',()=>{clearTimeout(timer);resolve();});
+  });
+  const resolved=path.resolve(profile);
+  if(resolved.startsWith(path.resolve(output)+path.sep) && /^chrome-[0-9a-f-]{36}$/i.test(path.basename(resolved))){
+    try{fs.rmSync(resolved,{recursive:true,force:true,maxRetries:5,retryDelay:100});}
+    catch(error){console.warn('Could not remove the isolated Chrome test profile:',error.message);}
+  }
+}

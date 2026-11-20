@@ -15,3 +15,10 @@
 .body-tools{display:flex;align-items:center;gap:8px;margin-top:10px;padding:2px 0;min-height:34px}.body-tools button{flex:none;min-height:30px;padding:5px 12px;font-size:11px;line-height:18px}
 .categories{max-height:none;overflow:visible}
 @media(min-width:801px){.payload-list{max-height:calc(100vh - 400px)}}
+dialog{width:min(660px,calc(100vw - 24px));max-height:calc(100vh - 24px);padding:20px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);box-shadow:0 16px 50px #0005}dialog::backdrop{background:#0009}.import-heading,.import-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.import-heading h2{font-size:16px}.import-heading button{font-size:20px;line-height:1;border:0;background:transparent}dialog>p{margin:10px 0;color:var(--muted);font-size:12px}#import-input{height:min(310px,45vh);margin-top:14px;background:var(--inset)}#import-error{color:var(--error);overflow-wrap:anywhere}.import-actions{justify-content:flex-end;margin-top:14px}
+:root{--field-bg:#f8f6ff;--field-border:#aaa4c0;--field-placeholder:#73768a}
+:root[data-theme=dark]{--field-bg:#252735;--field-border:#666a80;--field-placeholder:#aeb1c1}
+@media(prefers-color-scheme:dark){:root[data-theme=system]{--field-bg:#252735;--field-border:#666a80;--field-placeholder:#aeb1c1}}
+input:not([type=checkbox]),select,textarea:not([readonly]),.editor-block textarea,.scratch textarea,.library>input,.option-grid input,#import-input{background:var(--field-bg);border-color:var(--field-border)}
+input::placeholder,textarea::placeholder{color:var(--field-placeholder);opacity:1}
+input[type=checkbox]{accent-color:var(--accent)}

@@ -1,12 +1,12 @@
 {
-  "name": "hacktab",
-  "version": "1.1.0",
+  "name": "hack-devtools",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
-  "description": "HackTab DevTools extension",
+  "description": "Hack-DevTools browser extension",
   "scripts": {
     "test": "node --test tests/core.test.js",
-    "test:browser": "node tests/browser.test.js",
+    "test:browser": "node scripts/package.js && node tests/browser.test.js",
     "check": "node scripts/check.js",
     "package": "node scripts/package.js",
     "package:firefox": "node scripts/build-firefox.js",
