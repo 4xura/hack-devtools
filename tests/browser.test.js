@@ -205,7 +205,9 @@ async function run(){
   assert.notEqual(await evaluate(panel.sessionId,"getComputedStyle(document.body).backgroundColor"),dark);
   await evaluate(panel.sessionId,"document.getElementById('theme').value='dark';document.getElementById('theme').dispatchEvent(new Event('change'));");
   assert.equal(await evaluate(panel.sessionId,"getComputedStyle(document.body).backgroundColor"),dark);
-  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.brand span').textContent"),'Designed for web pentest');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('extension-version').innerText"),await evaluate(panel.sessionId,"'v' + chrome.runtime.getManifest().version"));
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.brand-intro').textContent"),'By Axura (@4xura) | https://4xura.com');
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.brand-intro a').href"),'https://4xura.com/');
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('footer,#target-label')"),null);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').hidden"),true);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').parentElement.className"),'header-tools');

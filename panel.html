@@ -3,7 +3,13 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hack-DevTools</title><link rel="icon" href="assets/logo.png"><link rel="stylesheet" href="styles/panel.css"><script type="module" src="src/panel.js"></script></head>
 <body>
   <header class="topbar">
-    <div class="brand"><img src="assets/logo.png" alt="" width="32" height="32"><div><h1>Hack-DevTools</h1><span>Designed for web pentest</span></div><span class="version">1.2</span></div>
+    <div class="brand">
+      <img src="assets/logo.png" alt="" width="32" height="32">
+      <div>
+        <div class="brand-title"><h1>Hack-DevTools</h1><span id="extension-version" class="version" hidden></span></div>
+        <span class="brand-intro">By Axura (@4xura) | <a href="https://4xura.com" target="_blank" rel="noopener noreferrer">https://4xura.com</a></span>
+      </div>
+    </div>
     <div class="header-actions"><label class="theme-label" for="theme">Appearance</label><select id="theme" aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
   </header>
   <main class="workspace">

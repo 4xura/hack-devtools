@@ -471,6 +471,9 @@ document.addEventListener('keydown', event => {
 });
 
 async function initialize() {
+  const versionBadge = $('extension-version');
+  versionBadge.textContent = 'v' + chrome.runtime.getManifest().version;
+  versionBadge.hidden = false;
   const [{theme = 'system', templateOptions = {}}, stored] = await Promise.all([chrome.storage.local.get(['theme', 'templateOptions']), chrome.storage.session.get(draftKey)]);
   const appearance = ['system', 'light', 'dark'].includes(theme) ? theme : 'system';
   $('theme').value = appearance; document.documentElement.dataset.theme = appearance;

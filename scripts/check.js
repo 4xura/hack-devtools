@@ -24,7 +24,9 @@ for (const file of files.filter(file => /\.(js|html|css|json|md)$/.test(file))) 
   if (file.endsWith('.html')) assert(text.includes('Hack-DevTools'), `Missing project title in ${file}`);
   if (file.endsWith('.html')) {
     assert(!/\son\w+=|<script[^>]+src=["']https?:/i.test(text), `Unexpected executable markup in ${file}`);
-    for (const match of text.matchAll(/(?:src|href)="([^"#]+)"/g)) assert(fs.existsSync(path.join(root, match[1])), `Missing page asset: ${match[1]}`);
+    // HTTPS hyperlinks are navigation targets, not packaged assets.
+    const assetMarkup = text.replace(/(<a\b[^<>]*\s)href="https:\/\/[^"]*"/gi, '$1');
+    for (const match of assetMarkup.matchAll(/(?:src|href)="([^"#]+)"/g)) assert(fs.existsSync(path.join(root, match[1])), `Missing page asset: ${match[1]}`);
   }
 }
 console.log(`PASS: ${files.length} files checked; manifest, assets, scripts, branding, and local resources valid.`);
