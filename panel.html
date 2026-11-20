@@ -4,7 +4,7 @@
 <body>
   <header class="topbar">
     <div class="brand"><img src="assets/logo.png" alt="" width="32" height="32"><div><h1>Hack-DevTools</h1><span>Designed for web pentest</span></div><span class="version">1.2</span></div>
-    <div class="header-actions"><label class="theme-label" for="theme">Appearance</label><select id="theme" aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select><button id="history-toggle" aria-expanded="false" aria-controls="history-pane">History <kbd>30</kbd></button></div>
+    <div class="header-actions"><label class="theme-label" for="theme">Appearance</label><select id="theme" aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
   </header>
   <main class="workspace">
     <section class="composer" aria-label="Request composer">
@@ -21,8 +21,7 @@
         <div id="result-pane" class="result-pane" hidden><h3>Result</h3><pre id="result-text"></pre></div>
         <details id="follow-pane" class="follow-pane"><summary>Follow-up request</summary><div class="follow-controls"><label for="follow-url">GET URL template</label><input id="follow-url" type="text" spellcheck="false" placeholder="/api/print-jobs/{{response.job_id}}"><div class="follow-actions"><button id="follow-once" type="button">Send GET</button><button id="follow-poll" type="button">Poll until ready</button><button id="follow-stop" type="button" hidden>Stop</button></div><div class="follow-settings"><label>State field <input id="follow-state" value="state"></label><label>Ready value <input id="follow-ready" value="ready"></label><label>Result field <input id="follow-field" value="receipt_text"></label></div><p class="muted">Use fields from the latest JSON response in the URL, such as {{response.job_id}}. Poll checks every 400 ms, up to 30 times.</p></div></details>
       </section>
-      <section id="history-pane" class="history" hidden aria-label="Session history"><div class="section-title"><h2>Session history</h2><button id="clear-history" class="quiet">Clear history</button></div><div id="history-list"></div></section>
-      <details class="scratch" open><summary>Scratchpad <span class="muted">compose and transform without sending</span></summary><textarea id="scratch" class="editable" aria-label="Scratchpad" spellcheck="false" placeholder="Select text here or in any request field, then choose a payload or transformation."></textarea></details>
+      <section id="history-pane" class="history" aria-label="Session history"><div class="section-title"><button id="history-toggle" type="button" aria-expanded="false" aria-controls="history-list">Session history</button><button id="clear-history" class="quiet" type="button" hidden>Clear history</button></div><div id="history-list" hidden></div></section>
 
     </section>
     <aside class="library" aria-label="Payload library"><div class="section-title"><h2>Payload library</h2><span id="payload-count" class="muted"></span></div><input id="search" type="search" placeholder="Search payloads…" aria-label="Search payloads"><div id="categories" class="categories" role="group" aria-label="Payload category"></div>
@@ -35,4 +34,5 @@
     </aside>
   </main>
   <dialog id="import-dialog" aria-labelledby="import-title"><div class="import-heading"><h2 id="import-title">Load request</h2><button id="import-close" type="button" aria-label="Close">×</button></div><p>Paste Chrome's Copy as cURL, PowerShell, or Fetch output.</p><textarea id="import-input" spellcheck="false" aria-label="Copied request" placeholder="curl --url 'https://example.com/api' \\&#10;  -H 'Content-Type: application/json' \\&#10;  --data-raw '{&quot;probe&quot;:true}'"></textarea><p id="import-error" role="alert" hidden></p><div class="import-actions"><button id="import-cancel" type="button">Cancel</button><button id="import-apply" type="button" class="primary">Load into editor</button></div></dialog>
+  <dialog id="history-dialog" aria-labelledby="history-title"><div class="import-heading"><h2 id="history-title">Saved request</h2><button id="history-close" type="button" aria-label="Close">×</button></div><p id="history-meta"></p><label class="history-field">URL<input id="history-url" readonly></label><div class="history-preview-grid"><label class="history-field">Request body<textarea id="history-body" readonly spellcheck="false"></textarea></label><label class="history-field">Header overrides<textarea id="history-headers" readonly spellcheck="false"></textarea></label></div><div class="import-actions"><button id="history-cancel" type="button">Close</button><button id="history-load" type="button" class="primary">Load into Request</button></div></dialog>
 </body></html>

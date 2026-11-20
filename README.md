@@ -1,87 +1,124 @@
+<img src="assets/logo.png" align="right" width="48" alt="Hack-DevTools logo">
+
 # Hack-DevTools
 
-A DevTools workspace for composing HTTP requests, transforming text, and preparing security test payloads.
+Hack-DevTools puts an HTTP request editor, response viewer, and payload library inside Chrome and Firefox DevTools. Bring a request over from Network, edit it, and see what comes back.
 
-## Chrome
+| Light                                                                     | Dark                                                       |
+|:-------------------------------------------------------------------------:|:----------------------------------------------------------:|
+| ![Hack-DevTools request editor in light mode](docs/screenshots/light.png) | ![The same editor in dark mode](docs/screenshots/dark.png) |
 
-1. Run `npm run package` from the repository root.
-2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**. Select `dist/chrome-unpacked`.
-3. Open an HTTP or HTTPS page, open DevTools, and select **Hack-DevTools**. The panel may be under the DevTools overflow menu.
+Choose **Light**, **Dark**, or **System** from **Appearance**.
 
-Chrome 120 or newer is required. The unpacked build contains only extension files, keeping reloads quick even when the repository has development dependencies and test profiles.
+![](docs/screenshots/navigate-page.gif)
 
-## Firefox
+Unlike traditional intercepting proxies such as BurpSuite, this lightweight penetration testing toolkit operates directly in your browser, enabling real-time security testing without switching tools.
 
-Firefox 142 or newer is required. Build the Firefox variant from the same source tree:
+## Install
 
-```sh
-npm run package:firefox
-```
+### From a release
 
-Open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `dist/firefox-unpacked/manifest.json`. Open DevTools on an HTTP or HTTPS page and select **Hack-DevTools**. Temporary add-ons are removed when Firefox restarts. The ZIP in `dist/` is unsigned and is not a permanent install package; permanent distribution requires Mozilla signing.
+| Browser     | Setup                                                                                                                                                                                                                                                                                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Chrome**  | Download and extract the Chrome ZIP. In `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted folder. [GitHub Releases](https://github.com/4xura/hack-devtools/releases/latest)                                                                                                                           |
+| **Firefox** | A permanent install requires a Mozilla-signed `.xpi`. The current release ships an unsigned Firefox ZIP. Once a signed `.xpi` is available, open `about:addons`, choose **Install Add-on From File…** from the gear menu, and select the file. [Mozilla’s install guide](https://extensionworkshop.com/documentation/publish/install-self-distributed/) |
 
-## Workspace
+Open a web page, open DevTools, and select **Hack-DevTools**. Look in the tab overflow menu if it’s hidden.
 
-- **Navigate tab** sends GET or form POST requests in the inspected tab.
-- **Load request** opens a paste dialog for Chrome's Copy as cURL, PowerShell, and Fetch formats. It fills the URL, method, body, body type, headers, and credentials without sending. Unsupported cURL flags and file-backed bodies cause an import error. Browser-managed headers and `--insecure` are reported as skipped. A copied Fetch command runs from Hack-DevTools's extension context, so page-origin CORS behavior may differ. Review imported fields before Send.
-- **Fetch response** supports GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, with form, JSON, XML, or plain text bodies. Responses appear as text, with status, timing, and headers. Requests time out after 30 seconds; previews are limited to 1 MiB.
-- **Follow-up request** can build a same-origin GET URL from a JSON response using fields such as `{{response.job_id}}`. Send it once or poll every 400 ms until a configurable state field reaches its ready value, up to 30 checks. The configured result field appears below the response and can be opened in a separate Hack-DevTools result tab.
-- **Open destination (GET)** appears when Fetch follows an HTTP redirect, including a POST that receives `302` and continues as GET. It opens the final URL with a browser GET. **Open result in tab** displays the response body as inert text, including HTML source, without running scripts from the response.
-- **Pause on redirects** is available in Chrome with Fetch response. It shows the intermediate status, response headers, `Location`, and proposed next method before sending the next hop. Choose **Edit next request** to load the proposed URL, method, body, and headers into the main composer, where every field and the delivery choice can be changed before Send. **Follow with Fetch** sends the proposed hop directly; **Navigate tab** does so when it is GET. POST becomes GET for `301`/`302`; `303` switches non-GET/HEAD methods to GET; `307`/`308` preserve method and body, so direct tab navigation is disabled for those non-GET hops. Cross-origin hops do not copy explicit Authorization or Cookie overrides. Firefox follows Fetch redirects automatically because it does not expose the intermediate `Location` of an extension-origin Fetch request.
-- **Header overrides** accept one `Name: value` per line. In Chrome, **Fetch** performs a background GET of the inspected page and replaces the editor with the outgoing request headers Chrome exposes. In Firefox, **Fetch** loads the most recently captured headers from that page; reload the page first if it was open before Hack-DevTools. It keeps the tab in place and does not replay POST bodies. Browser framing, compression, and `Sec-*` context headers are omitted from the editable list. **Reset** clears the editor and active navigation overrides. Presets cover Referer, User-Agent, Cookie, Authorization, Content-Type, and X-Forwarded-For.
-- **Load page** restores the inspected URL and its latest captured navigation body. POST capture covers requests made while the extension is enabled; it does not recover requests from before installation.
-- **Scratchpad** provides a separate text editor. Transforms use selected text, or the whole active field when nothing is selected. Payload insertion replaces the selection or inserts at the cursor. **Undo** restores the previous insertion or transformation in that field.
-- **Format** below Request body converts JavaScript-style object notation with unquoted keys, single quotes, or trailing commas into strict JSON when Body is set to JSON. With Form encoded selected, it converts URL-encoded pairs or line-based `name: value` fields into a form body. Invalid JSON is explained beneath the body editor. Formatting runs only when the button is clicked, so deliberately malformed test bodies stay intact until you choose to convert them.
-- **Ctrl+Enter** sends a request; **Command+Enter** also works on macOS.
+### Build from source
 
-Navigation header overrides apply only to the inspected tab’s top-level requests to the configured destination hostname. They remain active until the next Navigate request replaces them, **Reset** is pressed, the workspace is cleared, or the tab closes. Fetch overrides apply only during that request. Cross-host redirects do not inherit custom overrides.
+On Windows with Node.js 22 or newer, run this from the repository root in PowerShell.
 
-Form bodies preserve repeated names, empty values, Unicode, and standard `+`/percent encoding. Navigate POST uses a browser form; use Fetch when exact JSON, XML, or text bodies are needed. Browser policies, network restrictions, cookies, and page form policies can affect requests. Response headers reflect what Chrome exposes to the extension.
-
-Opening a redirected destination performs a new GET. If the final response depends on a POST body, use the captured response or a configured follow-up request instead.
-
-In Chrome, to inspect a redirect chain, select **Fetch response**, check **Pause on redirects**, and send the first request. Read the intermediate response headers and target URL. Choose **Edit next request** if you want to revise the proposed hop in the main composer, then press **Send**. For an unchanged hop, use the direct Fetch or navigation button. The redirect card appears again if the next hop also redirects. Leave the checkbox off when the final response is all you need.
-
-### Async job example
-
-The reservation example uses an asynchronous job rather than an HTTP redirect. Send the lookup request, then send a JSON POST to `/api/check-in` with `reservation`, `family_name`, and `receipt_layout`. Its `202` response contains `job_id`. Hack-DevTools suggests `/api/print-jobs/{{response.job_id}}`; click **Poll until ready**. The default state and result fields, `state=ready` and `receipt_text`, display the finished receipt. **Open result in tab** shows the receipt in a separate tab. The site's own `/reservations` page updates its receipt area only when its JavaScript form handler runs.
-
-## Payload library
-
-Search and filter engine-specific SQL tabs for MySQL, PostgreSQL, MSSQL, Oracle, SQLite, DB2, and BigQuery, plus NoSQL-MongoDB. The catalog also includes XSS, LFI, XXE, SSTI, SSRF, 403-bypass, CORS, CMD, CRLF, CSS, CSV, Encoding, GraphQL, HPP, LDAP, SAML, Upload, WebSocket, XPath, shell snippets, and request body templates. SQL entries separate probes, enumeration, delays, advanced features, and legacy techniques where applicable.
-
-SSTI covers detection and engine-specific syntax for Jinja2, Django, Mako, Tornado, Twig, Smarty, Blade, FreeMarker, Velocity, Java EL, Thymeleaf, Ruby, JavaScript, Razor, and EEx. Native template expressions such as `{{config}}` remain literal payload text. SSRF includes alternate address forms, parser checks, URL schemes, and cloud metadata templates.
-
-403-bypass includes path variants, URL rewrite headers, method override headers, and client-IP header combinations. Header entries add or replace the corresponding override; path entries replace the URL using its current origin and the configured **Target path**. These actions prepare the composer without sending a request. Browsers normalize some dot-segment paths and URL forms; Hack-DevTools is not a raw HTTP transport.
-
-Encoding includes explicit Unicode compatibility characters and visually similar letters. The transform menu provides NFC, NFD, NFKC, NFKD, and named Latin-to-lookalike substitutions. Greek omicron `ο` and Cyrillic `о` look like Latin `o` in many fonts, while NFKC keeps them distinct. Fullwidth `ｏ` normalizes to Latin `o`. See [Unicode confusables data](https://www.unicode.org/Public/security/latest/confusables.txt) and [Unicode normalization](https://www.unicode.org/reports/tr15/).
-
-Upload and WebSocket entries are text snippets for composing requests or messages. The current request composer sends HTTP requests and does not upload binary files or open WebSocket connections. Raw duplicate JSON keys in the HPP and NoSQL sections should be left unformatted because JSON formatting collapses duplicate keys.
-
-Template options configure column count, database, table, column names, file path, host, port, delay, target path, and a probe value. Options are inserted as text. Review the resulting syntax before sending. Optional URL encoding applies to payloads inserted into the active editor; structured header and full-URL entries keep their request syntax. Payloads are never automatically sent or evaluated by the library. References and applicable notices are in `THIRD_PARTY_NOTICES.md`.
-
-## Appearance and storage
-
-Appearance defaults to **System** and follows OS color preferences. **Light** and **Dark** override that choice. Appearance and template options persist locally.
-
-Drafts, scratchpads, captured bodies, and the latest 30 successful requests per tab are kept in browser session storage and cleared when the browser session ends. Follow-up polling does not add each check to history. Result tabs use session storage and their stored response is removed when the tab closes. The extension has no telemetry, licensing service, remote scripts, or automatic update endpoint. Network requests are initiated through the request workspace.
-
-## Development
-
-Node.js 22 or newer is needed for development checks. Both unpacked builds are generated from the same JavaScript, HTML, CSS, and assets under `dist/chrome-unpacked` and `dist/firefox-unpacked`. The Firefox build substitutes Firefox's `browser` Promise API and writes a Firefox MV3 background-page manifest. No generated files are committed.
-
-```sh
-npm ci
-npm test
-npm run check
-npm run test:browser
-npm run test:firefox
+```powershell
 npm run package:all
-npm run lint:firefox
 ```
 
-Browser tests use isolated profiles and a loopback HTTP server. Set `CHROME_PATH` or `FIREFOX_PATH` when a browser is not at a standard Windows location. Test profiles and screenshots are written under `work/`. Packaging writes `dist/hack-devtools-1.2.0.zip` and `dist/hack-devtools-firefox-1.2.0.zip`, excluding tests, development files, and Git metadata.
+For Chrome, select `dist/chrome-unpacked` in **Load unpacked**. The Firefox build is in `dist/firefox-unpacked` for signing. Both ZIPs are in `dist/`.
 
-For an authorized live environment that implements the reservation job example, set `HACK_DEVTOOLS_LIVE_ORIGIN` before `npm run test:browser` to exercise lookup, check-in, and job polling in addition to the local fixtures.
+## Send a request
 
-This repository is private. Chrome and Firefox archives are published through its GitHub Releases page.
+1. Choose a method and enter a URL, or click **Load page** to start from the inspected tab.
+2. Choose **Fetch response** to see the result in the panel, or **Navigate tab** to open a GET or submit a form POST in the inspected tab.
+3. Set the body format and headers as needed, then click **Send**.
+
+![The Request editor sending a JSON POST and displaying the echoed JSON in Response](docs/screenshots/send-request.png)
+
+### Format a request body
+
+Choose **POST** and set **Body** to **JSON**. Paste the object into **Request body** and click **Format** below it. In this example, Format adds quotes to the keys and removes the trailing comma.
+
+| Before Format                                                                                                  | After Format                                                                            |
+|:--------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------:|
+| ![Pasted object with unquoted keys and the Format button below the editor](docs/screenshots/format-before.png) | ![The same object formatted as valid, indented JSON](docs/screenshots/format-after.png) |
+
+With **Form encoded** selected, Format also converts fields such as `name: Ada Lovelace` to `name=Ada+Lovelace`.
+
+### Fetch page headers
+
+Open Hack-DevTools on the page whose headers you want, then click **Fetch** below **Header overrides**. Review the headers it fills in. **Reset** clears the box. In Firefox, reload the inspected page first if there are no captured headers.
+
+![Header overrides populated with User-Agent, Accept, and Accept-Language after clicking Fetch](docs/screenshots/fetch-request-headers.png)
+
+## Bring a request from Network
+
+In Chrome’s **Network** panel, right-click a request and choose **Copy as cURL**, **Copy as PowerShell**, or **Copy as Fetch**.
+
+![](docs/screenshots/copy-as.png)
+
+In Hack-DevTools, click **Load request**:
+
+![The Load request dialog with a pasted cURL command and the Load into editor button](docs/screenshots/load-request-0.png)
+
+Paste it, then click **Load into editor**. Review the populated fields before sending.
+
+![The Load request dialog with a pasted cURL command and the Load into editor button](docs/screenshots/load-request.png)
+
+## Insert and transform text
+
+The library has **600+ snippets across about 30 categories**. Start with **Templates** for JSON, XML, forms, and GraphQL, or search by name and category.
+
+### Insert a Payload
+
+Here we take an example of inserting a  commonly used JSON template:
+
+1. Choose **POST**, **Fetch response**, and **JSON**. Type `Ada Lovelace` into **Request body** and select it.
+2. In **Templates**, click **JSON object**. The selection becomes `{"name": "Ada Lovelace"}`.
+
+![The JSON object template turns selected text into a JSON request body](docs/screenshots/insert-json-template.png)
+
+### Encoding Transform
+
+For example, encode part of a form value:
+
+1. Choose **POST** and set **Body** to **Form encoded**. Enter `q=tea & toast&limit=5` and select just `tea & toast`.
+2. Choose **URL encode** in **Transform** and click **Apply to selection**. The body becomes `q=tea%20%26%20toast&limit=5`. Click **Undo** to restore the original.
+
+![The form body after URL encoding the selected value, with the Transform controls below](docs/screenshots/transform-form-value.png)
+
+There are plenty of encoding methods, including some bypass techniques:
+
+![](docs/screenshots/transform-methods.png)
+
+## Follow redirects and jobs
+
+### Inspect a redirect
+
+In Chrome, select **Fetch response** and check **Pause on redirects**. Choose **Edit next request** or **Follow with Fetch** at each hop. For a GET, **Navigate tab** opens the destination in the inspected tab. Firefox Fetch follows redirects automatically.
+
+![A paused 302 redirect showing its destination and the three actions for the next request](docs/screenshots/redirect.png)
+
+### Poll an API job
+
+For a response with a job ID, open **Follow-up request**. Set the GET URL template and the API’s state and result fields, then click **Poll until ready**. The extracted result appears above the follow-up controls.
+
+![Follow-up request configured with a job ID template and a result reading Report ready](docs/screenshots/follow-up.png)
+
+## Reuse a saved request
+
+Open **Session history** below the response and select an entry to preview it:
+
+![](docs/screenshots/history-button.png)
+
+Click **Load into Request** to fill the editor for review. History keeps up to 30 requests per tab for the current browser session.
+
+![The saved request popup with the URL, body, headers, and Load into Request button](docs/screenshots/history.png)

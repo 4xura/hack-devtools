@@ -7,11 +7,12 @@ import {importRequest} from './request-import.js';
 const $ = id => document.getElementById(id);
 const tabId = chrome.devtools?.inspectedWindow?.tabId ?? -1;
 const draftKey = `draft:${tabId}`;
-const editors = ['url', 'body', 'headers', 'scratch'];
-const labels = {url: 'URL', body: 'request body', headers: 'headers', scratch: 'scratchpad'};
+const editors = ['url', 'body', 'headers'];
+const labels = {url: 'URL', body: 'request body', headers: 'headers'};
 let target = $('url'), category = 'All';
 let rootResponse = null, displayedResponse = null, polling = false;
 let pendingRedirect = null;
+let selectedHistory = null;
 const undoStacks = new WeakMap();
 let draftTimer, settingsTimer;
 
@@ -52,7 +53,7 @@ function saveDraft() {
   $('body-count').textContent = `${$('body').value.length.toLocaleString()} characters`;
   clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
-    chrome.storage.session.set({[draftKey]: {...readRequest(), scratch: $('scratch').value}}).catch(error => status(error.message, true));
+    chrome.storage.session.set({[draftKey]: readRequest()}).catch(error => status(error.message, true));
   }, 200);
 }
 function updateMode() {
@@ -144,7 +145,16 @@ async function renderHistory() {
     const url = document.createElement('span'); url.textContent = entry.url;
     const time = document.createElement('time'); time.textContent = new Date(entry.time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
     button.append(method, url, time); button.title = `${entry.mode}: ${entry.url}`;
-    button.addEventListener('click', () => {writeRequest(entry); status('History restored. Review it, then Send.');});
+    button.addEventListener('click', () => {
+      selectedHistory = entry;
+      const delivery = entry.mode === 'fetch' ? 'Fetch response' : 'Navigate tab';
+      const time = new Date(entry.time).toLocaleString();
+      $('history-meta').textContent = `${entry.method} · ${delivery} · ${entry.bodyType || 'form'} · Credentials ${entry.credentials || 'include'} · ${time}`;
+      $('history-url').value = entry.url || '';
+      $('history-body').value = entry.body || '';
+      $('history-headers').value = entry.headersText || '';
+      $('history-dialog').showModal();
+    });
     fragment.append(button);
   }
   if (!history.length) {
@@ -170,7 +180,7 @@ async function send() {
       $('response-pane').scrollIntoView({block: 'nearest'});
       status(`Response ${result.status} received.`);
     } else status(result.message);
-    if (!$('history-pane').hidden) await renderHistory();
+    if (!$('history-list').hidden) await renderHistory();
   } catch (error) {
     if (error instanceof SyntaxError && $('body-type').value === 'json') showBodyError(`Invalid JSON: ${error.message}`);
     else status(error.message, true);
@@ -222,7 +232,7 @@ async function continueRedirect(delivery) {
       $('redirect-pane').hidden = true;
       status('Redirect opened in the inspected tab.');
     }
-    if (!$('history-pane').hidden) await renderHistory();
+    if (!$('history-list').hidden) await renderHistory();
   } catch (error) { status(error.message, true); }
   finally { button.disabled = false; }
 }
@@ -403,12 +413,26 @@ for (const field of document.querySelectorAll('.template-options input')) field.
   }, 200);
 });
 $('history-toggle').addEventListener('click', async () => {
-  const open = $('history-pane').hidden; $('history-pane').hidden = !open; $('history-toggle').setAttribute('aria-expanded', String(open));
+  const open = $('history-list').hidden;
+  $('history-list').hidden = !open;
+  $('clear-history').hidden = !open;
+  $('history-toggle').textContent = open ? 'Hide history' : 'Session history';
+  $('history-toggle').setAttribute('aria-expanded', String(open));
   if (open) {try {await renderHistory();} catch (error) {status(error.message, true);}}
 });
 $('clear-history').addEventListener('click', async () => {
   try {await message('clear-history'); await renderHistory(); status('Session history cleared.');}
   catch (error) {status(error.message, true);}
+});
+$('history-close').addEventListener('click', () => $('history-dialog').close());
+$('history-cancel').addEventListener('click', () => $('history-dialog').close());
+$('history-load').addEventListener('click', () => {
+  if (!selectedHistory) return;
+  writeRequest({body: '', headersText: '', bodyType: 'form', credentials: 'include', pauseRedirects: false, ...selectedHistory});
+  $('history-dialog').close();
+  $('url').focus();
+  $('url').scrollIntoView({block: 'center'});
+  status('Saved request loaded. Review it before sending.', false, true);
 });
 $('response-close').addEventListener('click', () => {$('response-pane').hidden = true;});
 $('redirect-edit').addEventListener('click', () => {
@@ -454,7 +478,7 @@ async function initialize() {
     const input = $(id);
     if (input?.closest('.template-options')) {if (input.type === 'checkbox') input.checked = !!value; else input.value = value;}
   }
-  if (stored[draftKey]) {writeRequest(stored[draftKey]); $('scratch').value = stored[draftKey].scratch || '';}
+  if (stored[draftKey]) writeRequest(stored[draftKey]);
   else if (tabId >= 0) await loadPage();
   if (tabId < 0) status('Open a page’s DevTools and select the Hack-DevTools panel.', true);
   updateMode(); renderPayloads(); document.documentElement.dataset.ready = 'true';

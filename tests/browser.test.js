@@ -209,23 +209,23 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('footer,#target-label')"),null);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').hidden"),true);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').parentElement.className"),'header-tools');
-  assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('response-pane').compareDocumentPosition(document.getElementById('scratch')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
-  assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('history-pane').compareDocumentPosition(document.getElementById('scratch')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.topbar #history-toggle,#scratch')"),null);
+  assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('response-pane').compareDocumentPosition(document.getElementById('history-pane')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
   await evaluate(panel.sessionId,"document.getElementById('fetch-headers').click()");
   await until(()=>evaluate(panel.sessionId,"!document.getElementById('fetch-headers').disabled && /user-agent:/i.test(document.getElementById('headers').value)"),'Fetch headers button');
   await evaluate(panel.sessionId,"document.getElementById('reset-headers').click()");
   await until(()=>evaluate(panel.sessionId,"document.getElementById('headers').value===''"),'Reset headers button');
-  await evaluate(panel.sessionId,"document.getElementById('scratch').focus();document.getElementById('scratch').value='abcXYZdef';document.getElementById('scratch').setSelectionRange(3,6);document.getElementById('search').value='script element';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
-  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abc<script>alert(1)</script>def',await evaluate(panel.sessionId,"document.getElementById('status').textContent"));
+  await evaluate(panel.sessionId,"document.getElementById('method').value='POST';document.getElementById('method').dispatchEvent(new Event('change'));document.getElementById('body').focus();document.getElementById('body').value='abcXYZdef';document.getElementById('body').setSelectionRange(3,6);document.getElementById('search').value='script element';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'abc<script>alert(1)</script>def',await evaluate(panel.sessionId,"document.getElementById('status').textContent"));
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('#payload-list script')===null"),true);
   await evaluate(panel.sessionId,"document.getElementById('undo').click()");
-  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abcXYZdef');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'abcXYZdef');
   await evaluate(panel.sessionId,"document.getElementById('transform').value='base64-encode';document.getElementById('apply-transform').click()");
-  await until(()=>evaluate(panel.sessionId,"document.getElementById('scratch').value==='abcWFla def'.replace(' ','')"),'selection transform');
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('body').value==='abcWFla def'.replace(' ','')"),'selection transform');
   console.log('PASS: Live system appearance, explicit theme, safe payload insertion, selection transforms, and undo');
 
   await evaluate(panel.sessionId,"document.getElementById('search').value='Jinja config object';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
-  assert((await evaluate(panel.sessionId,"document.getElementById('scratch').value")).includes('{{config}}'));
+  assert((await evaluate(panel.sessionId,"document.getElementById('body').value")).includes('{{config}}'));
   await evaluate(panel.sessionId,"document.getElementById('search').value='Original URL override';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();document.querySelector('.payload').click();");
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value"),'X-Original-URL: /admin');
   await evaluate(panel.sessionId,"document.getElementById('search').value='Trailing slash';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
@@ -237,8 +237,8 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('headers').value.includes('Origin: null')"),true);
   await evaluate(panel.sessionId,"(() => {const category=name=>[...document.querySelectorAll('#categories button')].find(button=>button.textContent===name);category('SQL-PostgreSQL').click();})()");
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('#payload-list .payload-group').textContent.startsWith('SQL-PostgreSQL')"),true);
-  await evaluate(panel.sessionId,"(() => {document.getElementById('scratch').focus();document.getElementById('scratch').value='logo';document.getElementById('transform').value='latin-o-greek';document.getElementById('apply-transform').click();})()");
-  await until(()=>evaluate(panel.sessionId,"document.getElementById('scratch').value==='lοgο'"),'Unicode substitution');
+  await evaluate(panel.sessionId,"(() => {document.getElementById('body').focus();document.getElementById('body').value='logo';document.getElementById('transform').value='latin-o-greek';document.getElementById('apply-transform').click();})()");
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('body').value==='lοgο'"),'Unicode substitution');
   console.log('PASS: New category tabs insert CORS headers and SQL snippets; Unicode transform edits selected text');
 
   const copiedCurl=`curl --url '${base}/imported-curl' -H 'Content-Type: application/json' -H 'Connection: keep-alive' -H 'X-Imported: yes' --data-raw '{"x":1}' --insecure`;
@@ -312,13 +312,29 @@ async function run(){
   assert.equal((await getRequest('/ui-send')).body,'<probe>✓</probe>');
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('response-pane').hidden"),false);
   assert((await evaluate(panel.sessionId,"document.getElementById('response-body').value")).includes('<!doctype html>'));
-  await evaluate(panel.sessionId,"document.getElementById('history-toggle').click()");
+  const requestCountBeforeHistory=requests.length;
+  await evaluate(panel.sessionId,"document.getElementById('url').value='https://unsaved.example/test';document.getElementById('history-toggle').click()");
   await until(()=>evaluate(panel.sessionId,"document.querySelectorAll('.history-entry').length>0"),'UI history');
-  await evaluate(panel.sessionId,"document.getElementById('theme').value='light';document.getElementById('theme').dispatchEvent(new Event('change'));document.getElementById('scratch').value='draft persistence';document.getElementById('scratch').dispatchEvent(new Event('input'));");
-  await until(()=>evaluate(panel.sessionId,`chrome.storage.session.get('draft:${tabId}').then(data=>data['draft:${tabId}']?.scratch==='draft persistence')`),'draft saved');
+  await evaluate(panel.sessionId,"document.querySelector('.history-entry').click()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('history-dialog').open"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('history-meta').textContent.includes('POST · Fetch response')"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('history-url').value"),base+'/ui-send');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('history-body').value"),'<probe>✓</probe>');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('history-headers').value"),'X-Probe: ui');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),'https://unsaved.example/test');
+  const historyScreenshot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
+  fs.writeFileSync(path.join(output,'hack-devtools-history.png'),Buffer.from(historyScreenshot.data,'base64'));
+  await evaluate(panel.sessionId,"document.getElementById('history-load').click()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('history-dialog').open"),false);
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('url').value"),base+'/ui-send');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'<probe>✓</probe>');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('mode').value"),'fetch');
+  assert.equal(requests.length,requestCountBeforeHistory);
+  await evaluate(panel.sessionId,"document.getElementById('theme').value='light';document.getElementById('theme').dispatchEvent(new Event('change'));document.getElementById('body').value='draft persistence';document.getElementById('body').dispatchEvent(new Event('input'));");
+  await until(()=>evaluate(panel.sessionId,`chrome.storage.session.get('draft:${tabId}').then(data=>data['draft:${tabId}']?.body==='draft persistence')`),'draft saved');
   await call('Page.reload',{},panel.sessionId);
   await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'restored panel');
-  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'draft persistence');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'draft persistence');
   assert.equal(await evaluate(panel.sessionId,"document.documentElement.dataset.theme"),'light');
   console.log('PASS: Send-button XML request, inert response rendering, history UI, and persisted theme/draft');
 
@@ -457,7 +473,27 @@ async function run(){
   }
 
   await call('Page.bringToFront',{},panel.sessionId);
-  await evaluate(panel.sessionId,"document.getElementById('search').value='';document.getElementById('search').dispatchEvent(new Event('input'));document.getElementById('scratch').value='Select text, then choose a payload or transformation.';scrollTo(0,0);");
+  await evaluate(panel.sessionId,`(() => {
+    const field=(id,value)=>{document.getElementById(id).value=value;document.getElementById(id).dispatchEvent(new Event('change'));};
+    field('url','https://httpbingo.org/anything');
+    field('method','POST');
+    field('mode','fetch');
+    field('body-type','json');
+    field('credentials','include');
+    field('body',JSON.stringify({query:'probe',limit:5},null,2));
+    field('headers','Content-Type: application/json\\nX-Test: hack-devtools');
+    document.getElementById('body').dispatchEvent(new Event('input'));
+    document.getElementById('pause-redirects').checked=false;
+    document.getElementById('response-pane').hidden=true;
+    document.getElementById('history-list').hidden=true;
+    document.getElementById('clear-history').hidden=true;
+    document.getElementById('history-toggle').textContent='Session history';
+    document.getElementById('history-toggle').setAttribute('aria-expanded','false');
+    document.getElementById('status').hidden=true;
+    document.getElementById('search').value='';
+    document.getElementById('search').dispatchEvent(new Event('input'));
+    scrollTo(0,0);
+  })()`);
   for(const theme of ['light','dark']){
     await evaluate(panel.sessionId,`document.getElementById('theme').value='${theme}';document.getElementById('theme').dispatchEvent(new Event('change'));`);
     const shot=await call('Page.captureScreenshot',{format:'png'},panel.sessionId);
