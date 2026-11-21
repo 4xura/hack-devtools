@@ -143,3 +143,5 @@ Open **Session history** below the response and select an entry to preview it:
 Click **Load into Request** to fill the editor for review. History keeps up to 30 requests per tab for the current browser session.
 
 ![The saved request popup with the URL, body, headers, and Load into Request button](docs/screenshots/history.png)
+
+[Privacy policy](PRIVACY.md)
