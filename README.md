@@ -22,8 +22,6 @@ Unlike traditional intercepting proxies such as BurpSuite, this lightweight pene
 
 **Firefox:** [Download the Mozilla-signed XPI](https://github.com/4xura/hack-devtools/releases/download/v1.2.2/hack-devtools-firefox-1.2.2-signed.xpi). Open `about:addons`, choose **Install Add-on From File…** from the gear menu, and select the downloaded `.xpi`. Confirm Firefox’s permission prompts. This works in standard Firefox and stays installed after a restart.
 
-The release also includes an unsigned XPI for Developer Edition or Nightly testing and a Firefox ZIP for signing.
-
 Open a web page, open DevTools, and select **Hack-DevTools**. Look in the tab overflow menu if it’s hidden.
 
 ### Build from source
