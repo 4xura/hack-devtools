@@ -10,6 +10,7 @@
     "check": "node scripts/check.js",
     "package": "node scripts/package.js",
     "package:firefox": "node scripts/build-firefox.js",
+    "sign:firefox": "npm run package:firefox && web-ext sign --source-dir dist/firefox-unpacked --artifacts-dir dist --channel unlisted",
     "package:all": "npm run package && npm run package:firefox",
     "lint:firefox": "web-ext lint --source-dir dist/firefox-unpacked",
     "test:firefox": "node tests/firefox.test.js"

@@ -32,5 +32,8 @@ const result = spawnSync('powershell.exe', ['-NoProfile','-Command', '$items = $
   cwd: target, env: {...process.env, HACK_DEVTOOLS_PACKAGE_INPUTS: JSON.stringify(entries), HACK_DEVTOOLS_PACKAGE_OUTPUT: packagePath}, encoding: 'utf8', windowsHide: true
 });
 if (result.status !== 0) throw new Error(result.stderr || result.stdout);
+const unsignedXpiPath = path.join(dist, `hack-devtools-firefox-${manifest.version}-unsigned.xpi`);
+fs.copyFileSync(packagePath, unsignedXpiPath);
 console.log(target);
 console.log(packagePath);
+console.log(unsignedXpiPath);
