@@ -12,6 +12,14 @@ Choose **Light**, **Dark**, or **System** from **Appearance**.
 
 ![](docs/screenshots/navigate-page.gif)
 
+The toolbar popup gives you **Quick Scratchpad** for short text edits. Type or paste text, choose a transform, then click **Apply** and **Copy**.
+
+![Hack-DevTools toolbar popup showing Open workspace and Quick Scratchpad](docs/screenshots/toolbar-popup.png)
+
+Choose **Open workspace** to edit requests in the sidebar. It follows the active tab and restores that tab's draft. On a blank tab, the workspace still opens for browsing the payload library and working with text.
+
+![Hack-DevTools request workspace at sidebar width](docs/screenshots/sidebar-workspace.png)
+
 Unlike traditional intercepting proxies such as BurpSuite, this lightweight penetration testing toolkit operates directly in your browser, enabling real-time security testing without switching tools.
 
 ## Install
@@ -20,7 +28,7 @@ Unlike traditional intercepting proxies such as BurpSuite, this lightweight pene
 
 **Chrome:** Download and extract the Chrome ZIP from [GitHub Releases](https://github.com/4xura/hack-devtools/releases/latest). In `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted folder.
 
-**Firefox:** Install [Hack-DevTools from Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/hack-devtools/) when the latest version is approved.
+**Firefox:** Install [Hack-DevTools from Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/hack-devtools/).
 
 Open a web page and press **F12** to open DevTools. Select **Hack-DevTools** from the tabs or the tab overflow menu.
 
@@ -34,10 +42,6 @@ npm run package:all
 ```
 
 For Chrome, select `dist/chrome-unpacked` in **Load unpacked**. The Firefox build is in `dist/firefox-unpacked` for signing. The build also creates `dist/hack-devtools-firefox-<version>-unsigned.xpi` for Firefox Developer Edition and Nightly.
-
-Click the toolbar icon and choose **Open workspace** to open the editor alongside the active web page. The sidebar switches with your tabs and restores each tab's draft. On blank tabs, the icon stays gray and opens a workspace for browsing the library and editing text. **Quick Scratchpad** uses the workspace's text transforms for URL and Base64 conversions, JSON formatting, hex, HTML, Unicode, and hashes.
-
-After changing the Chrome manifest, click **Reload** for Hack-DevTools in `chrome://extensions` to apply the updated permissions.
 
 ## Send a request
 
