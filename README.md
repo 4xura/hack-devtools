@@ -12,13 +12,9 @@ Choose **Light**, **Dark**, or **System** from **Appearance**.
 
 ![](docs/screenshots/navigate-page.gif)
 
-The toolbar popup gives you **Quick Scratchpad** for short text edits. Type or paste text, choose a transform, then click **Apply** and **Copy**.
+Open Hack-DevTools from the toolbar to keep the request workspace and text tools beside the page you're testing.
 
-![Hack-DevTools toolbar popup showing Open workspace and Quick Scratchpad](docs/screenshots/toolbar-popup.png)
-
-Choose **Open workspace** to edit requests in the sidebar. It follows the active tab and restores that tab's draft. On a blank tab, the workspace still opens for browsing the payload library and working with text.
-
-![Hack-DevTools request workspace at sidebar width](docs/screenshots/sidebar-workspace.png)
+<img src="docs/screenshots/overview.png" alt="Hack-DevTools toolbar popup and sidebar beside a web page" width="760">
 
 Unlike traditional intercepting proxies such as BurpSuite, this lightweight penetration testing toolkit operates directly in your browser, enabling real-time security testing without switching tools.
 
@@ -30,8 +26,6 @@ Unlike traditional intercepting proxies such as BurpSuite, this lightweight pene
 
 **Firefox:** Install [Hack-DevTools from Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/hack-devtools/).
 
-Open a web page and press **F12** to open DevTools. Select **Hack-DevTools** from the tabs or the tab overflow menu.
-
 ### Build from source
 
 On Windows with Node.js 22 or newer, run this from the repository root in PowerShell.
@@ -42,6 +36,12 @@ npm run package:all
 ```
 
 For Chrome, select `dist/chrome-unpacked` in **Load unpacked**. The Firefox build is in `dist/firefox-unpacked` for signing. The build also creates `dist/hack-devtools-firefox-<version>-unsigned.xpi` for Firefox Developer Edition and Nightly.
+
+## Open the workspace
+
+Click the toolbar icon and choose **Open workspace**. The sidebar follows the active tab and restores its draft. On a blank tab, it opens an empty workspace for browsing the payload library and editing text.
+
+For a quick text transform, type or paste into **Quick Scratchpad** in the popup, choose a transform, then click **Apply** and **Copy**. The full workspace is also available in DevTools. Open a web page, press **F12**, and select **Hack-DevTools** from the tabs or tab overflow menu.
 
 ## Send a request
 
