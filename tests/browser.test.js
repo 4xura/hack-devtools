@@ -211,8 +211,10 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('footer,#target-label')"),null);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').hidden"),true);
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('status').parentElement.className"),'header-tools');
-  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.topbar #history-toggle,#scratch')"),null);
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.topbar #history-toggle')"),null);
   assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('response-pane').compareDocumentPosition(document.getElementById('history-pane')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
+  assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('history-pane').compareDocumentPosition(document.getElementById('scratch')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.composer').lastElementChild.className"),'scratch');
   await evaluate(panel.sessionId,"document.getElementById('fetch-headers').click()");
   await until(()=>evaluate(panel.sessionId,"!document.getElementById('fetch-headers').disabled && /user-agent:/i.test(document.getElementById('headers').value)"),'Fetch headers button');
   await evaluate(panel.sessionId,"document.getElementById('reset-headers').click()");
@@ -224,6 +226,13 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'abcXYZdef');
   await evaluate(panel.sessionId,"document.getElementById('transform').value='base64-encode';document.getElementById('apply-transform').click()");
   await until(()=>evaluate(panel.sessionId,"document.getElementById('body').value==='abcWFla def'.replace(' ','')"),'selection transform');
+  await evaluate(panel.sessionId,"document.getElementById('scratch').focus();document.getElementById('scratch').value='abcXYZdef';document.getElementById('scratch').setSelectionRange(3,6);document.getElementById('search').value='Form parameters';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abcname=XYZ&value=1def');
+  await evaluate(panel.sessionId,"document.getElementById('undo').click()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abcXYZdef');
+  await evaluate(panel.sessionId,"document.getElementById('transform').value='base64-encode';document.getElementById('apply-transform').click()");
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abcWFla def'.replace(' ',''));
+  await evaluate(panel.sessionId,"document.getElementById('body').focus()");
   console.log('PASS: Live system appearance, explicit theme, safe payload insertion, selection transforms, and undo');
 
   await evaluate(panel.sessionId,"document.getElementById('search').value='Jinja config object';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
@@ -332,12 +341,15 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'<probe>✓</probe>');
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('mode').value"),'fetch');
   assert.equal(requests.length,requestCountBeforeHistory);
-  await evaluate(panel.sessionId,"document.getElementById('theme').value='light';document.getElementById('theme').dispatchEvent(new Event('change'));document.getElementById('body').value='draft persistence';document.getElementById('body').dispatchEvent(new Event('input'));");
-  await until(()=>evaluate(panel.sessionId,`chrome.storage.session.get('draft:${tabId}').then(data=>data['draft:${tabId}']?.body==='draft persistence')`),'draft saved');
+  await evaluate(panel.sessionId,"document.getElementById('theme').value='light';document.getElementById('theme').dispatchEvent(new Event('change'));document.getElementById('body').value='draft persistence';document.getElementById('body').dispatchEvent(new Event('input'));document.getElementById('scratch').value='scratch persistence';document.getElementById('scratch').dispatchEvent(new Event('input'));");
+  await until(()=>evaluate(panel.sessionId,`chrome.storage.session.get('draft:${tabId}').then(data=>data['draft:${tabId}']?.body==='draft persistence' && data['draft:${tabId}']?.scratch==='scratch persistence')`),'draft saved');
   await call('Page.reload',{},panel.sessionId);
   await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'restored panel');
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'draft persistence');
+  assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'scratch persistence');
   assert.equal(await evaluate(panel.sessionId,"document.documentElement.dataset.theme"),'light');
+  await evaluate(panel.sessionId,"document.getElementById('clear').click()");
+  await until(()=>evaluate(panel.sessionId,"document.getElementById('scratch').value===''"),'scratch cleared');
   console.log('PASS: Send-button XML request, inert response rendering, history UI, and persisted theme/draft');
 
   await call('Page.bringToFront',{},panel.sessionId);

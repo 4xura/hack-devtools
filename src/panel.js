@@ -7,8 +7,8 @@ import {importRequest} from './request-import.js';
 const $ = id => document.getElementById(id);
 const tabId = chrome.devtools?.inspectedWindow?.tabId ?? -1;
 const draftKey = `draft:${tabId}`;
-const editors = ['url', 'body', 'headers'];
-const labels = {url: 'URL', body: 'request body', headers: 'headers'};
+const editors = ['url', 'body', 'headers', 'scratch'];
+const labels = {url: 'URL', body: 'request body', headers: 'headers', scratch: 'scratchpad'};
 let target = $('url'), category = 'All';
 let rootResponse = null, displayedResponse = null, polling = false;
 let pendingRedirect = null;
@@ -53,7 +53,7 @@ function saveDraft() {
   $('body-count').textContent = `${$('body').value.length.toLocaleString()} characters`;
   clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
-    chrome.storage.session.set({[draftKey]: readRequest()}).catch(error => status(error.message, true));
+    chrome.storage.session.set({[draftKey]: {...readRequest(), scratch: $('scratch').value}}).catch(error => status(error.message, true));
   }, 200);
 }
 function updateMode() {
@@ -481,7 +481,10 @@ async function initialize() {
     const input = $(id);
     if (input?.closest('.template-options')) {if (input.type === 'checkbox') input.checked = !!value; else input.value = value;}
   }
-  if (stored[draftKey]) writeRequest(stored[draftKey]);
+  if (stored[draftKey]) {
+    writeRequest(stored[draftKey]);
+    $('scratch').value = stored[draftKey].scratch || '';
+  }
   else if (tabId >= 0) await loadPage();
   if (tabId < 0) status('Open a page’s DevTools and select the Hack-DevTools panel.', true);
   updateMode(); renderPayloads(); document.documentElement.dataset.ready = 'true';

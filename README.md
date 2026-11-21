@@ -86,6 +86,14 @@ Here we take an example of inserting a  commonly used JSON template:
 
 ![The JSON object template turns selected text into a JSON request body](docs/screenshots/insert-json-template.png)
 
+### Customize a template
+
+Open **Template options** below the category buttons in the Payload library. Fields such as **Columns**, **Host**, and **Probe value** fill in placeholders when you insert a snippet. Change the fields that match the snippet you’re using.
+
+Turn on **URL encode inserted payloads** when the entire snippet needs to fit inside one URL parameter.
+
+![The Payload library with Template options expanded and URL encode inserted payloads checked](docs/screenshots/template-options.png)
+
 ### Encoding Transform
 
 For example, encode part of a form value:
@@ -98,6 +106,18 @@ For example, encode part of a form value:
 There are plenty of encoding methods, including some bypass techniques:
 
 ![](docs/screenshots/transform-methods.png)
+
+### Use the Scratchpad
+
+Open **Scratchpad** below **Session history** to try snippets and transforms before copying the result into a request.
+
+1. Type `Ada Lovelace` in Scratchpad and select it. Choose **Templates** → **Form parameters**. Scratchpad now contains `name=Ada Lovelace&value=1`.
+
+   ![The Form parameters template beside the inserted form text in Scratchpad](docs/screenshots/scratchpad-insert.png)
+
+2. Select just `Ada Lovelace`. In **Transform** above Session history, choose **URL encode** and click **Apply to selection**. The result is `name=Ada%20Lovelace&value=1`. Click **Undo** to restore the previous text.
+
+   ![URL encode applied to the name in Scratchpad, with the encoded value selected](docs/screenshots/scratchpad-transform.png)
 
 ## Follow redirects and jobs
 
