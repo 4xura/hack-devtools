@@ -9,16 +9,20 @@ const target = path.resolve(dist, 'firefox-unpacked');
 if (!target.startsWith(path.resolve(dist) + path.sep)) throw new Error('Firefox output must stay inside dist.');
 fs.rmSync(target, {recursive: true, force: true});
 fs.mkdirSync(target, {recursive: true});
-const files = ['devtools.html','panel.html','viewer.html','src','styles','assets','LICENSE','THIRD_PARTY_NOTICES.md'];
+const files = ['devtools.html','panel.html','popup.html','sidebar.html','viewer.html','src','styles','assets','LICENSE','THIRD_PARTY_NOTICES.md'];
 for (const file of files) fs.cpSync(path.join(root, file), path.join(target, file), {recursive: true});
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 delete manifest.minimum_chrome_version;
 manifest.background = {scripts: ['src/background.js'], type: 'module'};
-manifest.action = {
-  default_title: 'Open Hack-DevTools for this tab',
-  default_icon: 'assets/logo.png',
-  default_area: 'navbar'
+manifest.action.default_area = 'navbar';
+manifest.sidebar_action = {
+  default_panel: manifest.side_panel.default_path,
+  default_title: manifest.name,
+  default_icon: manifest.icons['48'],
+  open_at_install: false
 };
+delete manifest.side_panel;
+manifest.permissions = manifest.permissions.filter(permission => permission !== 'sidePanel');
 manifest.browser_specific_settings = {gecko: {
   id: 'hack-devtools@axura.dev',
   strict_min_version: '142.0',
@@ -30,6 +34,7 @@ for (const file of fs.readdirSync(path.join(target, 'src'))) {
   const source = path.join(target, 'src', file);
   fs.writeFileSync(source, fs.readFileSync(source, 'utf8').replace(/\bchrome\./g, 'browser.'));
 }
+fs.copyFileSync(path.join(root, 'scripts/firefox/open-sidebar.js'), path.join(target, 'src/open-sidebar.js'));
 const packagePath = path.join(dist, `hack-devtools-firefox-${manifest.version}.zip`);
 if (process.platform !== 'win32') throw new Error('Firefox packaging currently requires PowerShell on Windows.');
 const entries = fs.readdirSync(target).map(name => path.join(target, name));

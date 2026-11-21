@@ -16,7 +16,7 @@ fs.rmSync(unpacked, {recursive: true, force: true});
 fs.mkdirSync(unpacked, {recursive: true});
 
 const files = [
-  'manifest.json', 'devtools.html', 'panel.html', 'viewer.html',
+  'manifest.json', 'devtools.html', 'panel.html', 'popup.html', 'sidebar.html', 'viewer.html',
   'src', 'styles', 'assets', 'LICENSE', 'THIRD_PARTY_NOTICES.md'
 ];
 for (const file of files) {

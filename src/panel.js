@@ -5,10 +5,12 @@ import {formatBody} from './body-format.js';
 import {importRequest} from './request-import.js';
 
 const $ = id => document.getElementById(id);
-const requestedTabId = Number(new URLSearchParams(location.search).get('tabId'));
+const panelParams = new URLSearchParams(location.search);
+const requestedTabId = Number(panelParams.get('tabId'));
 const tabId = chrome.devtools?.inspectedWindow?.tabId
   ?? (Number.isSafeInteger(requestedTabId) && requestedTabId > 0 ? requestedTabId : -1);
-const draftKey = `draft:${tabId}`;
+const blankWorkspace = tabId < 0 && panelParams.has('blank');
+const draftKey = blankWorkspace ? 'draft:blank' : `draft:${tabId}`;
 const editors = ['url', 'body', 'headers', 'scratch'];
 const labels = {url: 'URL', body: 'request body', headers: 'headers', scratch: 'scratchpad'};
 let target = $('url'), category = 'All';
@@ -17,6 +19,10 @@ let pendingRedirect = null;
 let selectedHistory = null;
 const undoStacks = new WeakMap();
 let draftTimer, settingsTimer;
+let payloadResults = [];
+let renderedPayloadCount = 0;
+let previousPayloadGroup = '';
+const payloadPageSize = 80;
 
 function status(message, error = false, pending = false) {
   $('status').textContent = message;
@@ -36,6 +42,7 @@ function showBodyError(message) {
   status('');
 }
 async function message(action, extra = {}) {
+  if (blankWorkspace) throw new Error('Open a web page to use this action.');
   const response = await chrome.runtime.sendMessage({action, tabId, ...extra});
   if (!response?.ok) throw new Error(response?.error || 'The request worker did not respond.');
   return response.result;
@@ -54,10 +61,18 @@ function writeRequest(request) {
 function saveDraft() {
   $('body-count').textContent = `${$('body').value.length.toLocaleString()} characters`;
   clearTimeout(draftTimer);
-  draftTimer = setTimeout(() => {
-    chrome.storage.session.set({[draftKey]: {...readRequest(), scratch: $('scratch').value}}).catch(error => status(error.message, true));
-  }, 200);
+  draftTimer = setTimeout(persistDraft, 200);
 }
+
+function persistDraft() {
+  if (draftTimer === undefined) return;
+  clearTimeout(draftTimer);
+  draftTimer = undefined;
+  chrome.storage.session.set({[draftKey]: {...readRequest(), scratch: $('scratch').value}}).catch(error => status(error.message, true));
+}
+
+window.addEventListener('pagehide', persistDraft);
+
 function updateMode() {
   if ($('body-type').value !== 'json') clearBodyError();
   const navigation = $('mode').value === 'navigate';
@@ -69,7 +84,6 @@ function updateMode() {
   const method = $('method').value;
   $('body').disabled = method === 'GET' || method === 'HEAD';
   $('format-body').disabled = $('body').disabled || !['json', 'form'].includes($('body-type').value);
-  $('mode-hint').textContent = navigation ? 'GET or form POST in the inspected page' : firefox ? 'Raw response preview · redirects followed automatically' : 'Raw request with a text response preview · 30s timeout';
 }
 function remember(field) {
   const stack = undoStacks.get(field) || [];
@@ -104,39 +118,40 @@ function templateValues(entry) {
   values.selected = target.value.slice(target.selectionStart, target.selectionEnd) || 'probe';
   return values;
 }
-function renderPayloads() {
-  const results = searchPayloads($('search').value, category);
-  $('payload-count').textContent = `${results.length} / ${PAYLOADS.length}`;
+function appendPayloadPage() {
+  if (renderedPayloadCount === payloadResults.length) return;
   const fragment = document.createDocumentFragment();
-  let previousGroup = '';
-  for (const entry of results) {
+  const end = Math.min(renderedPayloadCount + payloadPageSize, payloadResults.length);
+  for (let index = renderedPayloadCount; index < end; index++) {
+    const entry = payloadResults[index];
     const heading = `${entry.category} / ${entry.section}`;
-    if (heading !== previousGroup) {
+    if (heading !== previousPayloadGroup) {
       const title = document.createElement('div'); title.className = 'payload-group'; title.textContent = heading;
-      fragment.append(title); previousGroup = heading;
+      fragment.append(title); previousPayloadGroup = heading;
     }
     const button = document.createElement('button'); button.className = 'payload'; button.type = 'button';
+    button.dataset.index = String(index);
     const label = document.createElement('span'); label.textContent = entry.label;
     const code = document.createElement('code'); code.textContent = entry.template;
     button.append(label, code); button.title = entry.template;
-    button.addEventListener('click', () => {
-      try {
-        const text = interpolate(entry.template, templateValues(entry));
-        if (entry.target === 'headers') {
-          remember($('headers')); $('headers').value = mergeHeaders($('headers').value, text); $('headers').focus(); saveDraft();
-        } else if (entry.target === 'url') {
-          remember($('url')); $('url').value = text; $('url').focus(); saveDraft();
-        } else insert($('encode-insert').checked ? encodeURIComponent(text) : text);
-        const destination = entry.target === 'headers' ? 'headers' : entry.target === 'url' ? 'URL' : labels[target.id];
-        status(`Inserted ${entry.label} into ${destination}.`);
-      } catch (error) { status(error.message, true); }
-    });
     fragment.append(button);
   }
-  if (!results.length) {
-    const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'No matching payloads. Try another search.'; fragment.append(empty);
+  renderedPayloadCount = end;
+  $('payload-list').append(fragment);
+}
+function renderPayloads() {
+  payloadResults = searchPayloads($('search').value, category);
+  renderedPayloadCount = 0;
+  previousPayloadGroup = '';
+  $('payload-count').textContent = `${payloadResults.length} / ${PAYLOADS.length}`;
+  const list = $('payload-list');
+  list.replaceChildren();
+  list.scrollTop = 0;
+  if (payloadResults.length) appendPayloadPage();
+  else {
+    const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'No matching payloads. Try another search.';
+    list.append(empty);
   }
-  $('payload-list').replaceChildren(fragment);
 }
 async function renderHistory() {
   const history = await message('history');
@@ -345,13 +360,19 @@ $('import-apply').addEventListener('click', () => {
 $('load').addEventListener('click', loadPage);
 $('clear').addEventListener('click', async () => {
   try {
-    await message('reset-headers');
+    if (!blankWorkspace) await message('reset-headers');
     editors.forEach(id => {remember($(id)); $(id).value = '';});
     $('response-pane').hidden = true; rootResponse = null; displayedResponse = null; pendingRedirect = null; saveDraft(); status('Workspace cleared and header overrides reset.');
   } catch (error) { status(error.message, true); }
 });
 $('reset-headers').addEventListener('click', async () => {
-  try {await message('reset-headers'); remember($('headers')); $('headers').value = ''; saveDraft(); status('Header overrides removed.');}
+  try {
+    if (!blankWorkspace) await message('reset-headers');
+    remember($('headers'));
+    $('headers').value = '';
+    saveDraft();
+    status('Header overrides removed.');
+  }
   catch (error) {status(error.message, true);}
 });
 $('fetch-headers').addEventListener('click', async () => {
@@ -401,6 +422,25 @@ for (const name of CATEGORIES) {
   });
   $('categories').append(button);
 }
+$('payload-list').addEventListener('scroll', event => {
+  const list = event.currentTarget;
+  if (list.scrollTop + list.clientHeight >= list.scrollHeight - 150) appendPayloadPage();
+});
+$('payload-list').addEventListener('click', event => {
+  const button = event.target.closest('button.payload');
+  if (!button) return;
+  const entry = payloadResults[Number(button.dataset.index)];
+  try {
+    const text = interpolate(entry.template, templateValues(entry));
+    if (entry.target === 'headers') {
+      remember($('headers')); $('headers').value = mergeHeaders($('headers').value, text); $('headers').focus(); saveDraft();
+    } else if (entry.target === 'url') {
+      remember($('url')); $('url').value = text; $('url').focus(); saveDraft();
+    } else insert($('encode-insert').checked ? encodeURIComponent(text) : text);
+    const destination = entry.target === 'headers' ? 'headers' : entry.target === 'url' ? 'URL' : labels[target.id];
+    status(`Inserted ${entry.label} into ${destination}.`);
+  } catch (error) { status(error.message, true); }
+});
 $('search').addEventListener('input', renderPayloads);
 $('theme').addEventListener('change', () => {
   document.documentElement.dataset.theme = $('theme').value;
@@ -473,6 +513,11 @@ document.addEventListener('keydown', event => {
 });
 
 async function initialize() {
+  if (blankWorkspace) {
+    for (const id of ['send', 'load', 'fetch-headers']) $(id).disabled = true;
+    $('history-pane').hidden = true;
+    $('blank-workspace-note').hidden = false;
+  }
   const versionBadge = $('extension-version');
   versionBadge.textContent = 'v' + chrome.runtime.getManifest().version;
   versionBadge.hidden = false;
@@ -488,7 +533,7 @@ async function initialize() {
     $('scratch').value = stored[draftKey].scratch || '';
   }
   else if (tabId >= 0) await loadPage();
-  if (tabId < 0) status('Open a page’s DevTools and select the Hack-DevTools panel.', true);
+  if (tabId < 0 && !blankWorkspace) status('Open a page’s DevTools and select the Hack-DevTools panel.', true);
   updateMode(); renderPayloads(); document.documentElement.dataset.ready = 'true';
 }
 initialize().catch(error => status(error.message, true));

@@ -20,21 +20,24 @@ Unlike traditional intercepting proxies such as BurpSuite, this lightweight pene
 
 **Chrome:** Download and extract the Chrome ZIP from [GitHub Releases](https://github.com/4xura/hack-devtools/releases/latest). In `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted folder.
 
-**Firefox:** [Download the Mozilla-signed XPI](https://github.com/4xura/hack-devtools/releases/download/v1.2.4/hack-devtools-firefox-1.2.4-signed.xpi). Open `about:addons`, choose **Install Add-on From File…** from the gear menu, and select the downloaded `.xpi`. Confirm Firefox’s permission prompts. This works in standard Firefox and stays installed after a restart.
+**Firefox:** Install [Hack-DevTools from Mozilla Add-ons](https://addons.mozilla.org/firefox/addon/hack-devtools/) when the latest version is approved.
 
-Open a web page, open DevTools, and select **Hack-DevTools**. Look in the tab overflow menu if it’s hidden.
-
-In Firefox, the toolbar button opens the full request workspace for the active tab. You can move it using Firefox’s toolbar customization.
+Open a web page and press **F12** to open DevTools. Select **Hack-DevTools** from the tabs or the tab overflow menu.
 
 ### Build from source
 
 On Windows with Node.js 22 or newer, run this from the repository root in PowerShell.
 
 ```powershell
+npm ci
 npm run package:all
 ```
 
 For Chrome, select `dist/chrome-unpacked` in **Load unpacked**. The Firefox build is in `dist/firefox-unpacked` for signing. The build also creates `dist/hack-devtools-firefox-<version>-unsigned.xpi` for Firefox Developer Edition and Nightly.
+
+Click the toolbar icon and choose **Open workspace** to open the editor alongside the active web page. The sidebar switches with your tabs and restores each tab's draft. On blank tabs, the icon stays gray and opens a workspace for browsing the library and editing text. **Quick Scratchpad** uses the workspace's text transforms for URL and Base64 conversions, JSON formatting, hex, HTML, Unicode, and hashes.
+
+After changing the Chrome manifest, click **Reload** for Hack-DevTools in `chrome://extensions` to apply the updated permissions.
 
 ## Send a request
 

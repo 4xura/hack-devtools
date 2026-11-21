@@ -17,6 +17,7 @@ const built = spawnSync(process.execPath, [path.join(root,'scripts/build-firefox
 assert.equal(built.status,0,built.stderr || built.stdout);
 const firefoxManifest = JSON.parse(fs.readFileSync(path.join(root,'dist/firefox-unpacked/manifest.json'),'utf8'));
 assert.equal(firefoxManifest.action.default_area,'navbar');
+assert.equal(firefoxManifest.sidebar_action.default_panel,'sidebar.html');
 fs.rmSync(target,{recursive:true,force:true});
 fs.cpSync(path.join(root,'dist/firefox-unpacked'),target,{recursive:true});
 const requests=[];
@@ -37,9 +38,10 @@ const base='http://127.0.0.1:'+server.address().port;
 const backgroundProbe=`
 setTimeout(async()=>{
   try {
-    const tab=await browser.tabs.create({url:${JSON.stringify(base+'/start')},active:false});
+    const tab=await browser.tabs.create({url:${JSON.stringify(base+'/start')},active:true});
     await browser.storage.session.set({smokeTabId:tab.id});
-    await browser.tabs.create({url:browser.runtime.getURL('panel.html?tabId='+tab.id),active:true});
+    const sidebar=await browser.tabs.create({url:browser.runtime.getURL('sidebar.html'),active:false});
+    await browser.storage.session.set({smokeSidebarId:sidebar.id});
   } catch(error) {
     fetch(${JSON.stringify(base+'/report')},{method:'POST',body:JSON.stringify({error:'background: '+error.message})});
   }
@@ -47,11 +49,19 @@ setTimeout(async()=>{
 `;
 const panelProbe=`
 setTimeout(async()=>{
+  if (new URLSearchParams(location.search).has('blank')) return;
   const smokeBase=${JSON.stringify(base)};
   let result;
   try {
-    const tabId=(await browser.storage.session.get('smokeTabId')).smokeTabId;
+    const {smokeTabId: tabId, smokeSidebarId} = await browser.storage.session.get(['smokeTabId','smokeSidebarId']);
     if(!Number.isInteger(tabId)) throw new Error('No inspected tab');
+    const toolbar = {
+      ready: await browser.action.getTitle({tabId}) === 'Hack-DevTools',
+      blankWorkspace: await browser.action.getTitle({tabId: smokeSidebarId}) === browser.runtime.getManifest().action.default_title,
+      popupEnabled: await browser.action.isEnabled(smokeSidebarId),
+      popup: await browser.action.getPopup({tabId}) === browser.runtime.getURL('popup.html'),
+      sidebar: await browser.sidebarAction.getPanel({tabId}) === browser.runtime.getURL('sidebar.html')
+    };
     const loadedFromTab=document.getElementById('url').value===smokeBase+'/start';
     document.getElementById('url').value=smokeBase+'/post';
     document.getElementById('method').value='POST';
@@ -81,7 +91,7 @@ setTimeout(async()=>{
     const manual=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:'',pauseRedirects:true});
     const redirect=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:''});
     const nav=await send('execute',{tabId,url:smokeBase+'/nav',method:'GET',mode:'navigate',bodyType:'text',body:'',headersText:''});
-    result={pageHeaders,get,post,manual,redirect,nav,loadedFromTab,manualDisabled:document.getElementById('pause-redirects').disabled,bodyErrorBelow,bodyErrorCleared,formattedBody,importedRequest};
+    result={pageHeaders,get,post,manual,redirect,nav,loadedFromTab,toolbar,manualDisabled:document.getElementById('pause-redirects').disabled,bodyErrorBelow,bodyErrorCleared,formattedBody,importedRequest};
   } catch(error) {result={error:'panel: '+error.message};}
   await fetch(smokeBase+'/report',{method:'POST',body:JSON.stringify(result)});
 },1200);
@@ -104,6 +114,7 @@ try{
   assert.deepEqual(outcome.formattedBody,{reservation:'A7K-204',family_name:'Lee'});
   assert.equal(outcome.importedRequest,true);
   assert.equal(outcome.loadedFromTab,true);
+  assert.deepEqual(outcome.toolbar,{ready:true,blankWorkspace:true,popupEnabled:true,popup:true,sidebar:true});
   assert.equal(outcome.get.result.status,200);
   assert.equal(outcome.post.result.status,200);
   assert.equal(outcome.redirect.result.status,200);
@@ -113,7 +124,7 @@ try{
   assert.equal(postRequest.headers['user-agent'],'Hack-DevTools-Firefox-Test/1.0');
   assert.equal(postRequest.headers.cookie,'hack-devtools_firefox=ok');
   assert(requests.some(request=>request.url==='/nav'&&request.method==='GET'));
-  console.log('PASS: Firefox loaded Hack-DevTools, captured page headers, sent GET/POST with custom headers, followed 302, and navigated a tab.');
+  console.log('PASS: Firefox sidebar loaded the active web tab and ran the workspace smoke checks.');
 }finally{
   clearTimeout(watchdog);
   if (process.platform === 'win32') spawnSync('taskkill.exe',['/PID',String(webExt.pid),'/T','/F'],{stdio:'ignore'});

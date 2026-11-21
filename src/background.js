@@ -1,4 +1,5 @@
 import {validateRequest, parseForm, normalizeUrl, editableHeaders, parseHeaders} from './core.js';
+import {isWorkspaceReady} from './tab-context.js';
 
 const tabQueues = new Map();
 let fetchQueue = Promise.resolve();
@@ -10,13 +11,7 @@ const extensionOrigin = chrome.runtime.getURL('/').replace(/\/$/, '');
 const extensionInitiatorDomain = new URL(chrome.runtime.getURL('/')).hostname;
 const isFirefox = typeof chrome.runtime.getBrowserInfo === 'function';
 const extraHeaderSpec = isFirefox ? [] : ['extraHeaders'];
-
-if (isFirefox) {
-  chrome.action.onClicked.addListener(tab => {
-    if (!Number.isInteger(tab.id) || tab.id < 0) return;
-    chrome.tabs.create({url: chrome.runtime.getURL(`panel.html?tabId=${tab.id}`)}).catch(() => {});
-  });
-}
+const blankActionTitle = chrome.runtime.getManifest().action.default_title;
 
 function serial(queue, key, action) {
   const previous = queue.get(key) || Promise.resolve();
@@ -26,6 +21,32 @@ function serial(queue, key, action) {
   return next;
 }
 
+function refreshAction(tabId, tab) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  return serial(tabQueues, `action:${tabId}`, async () => {
+    const ready = isWorkspaceReady(tab ?? await chrome.tabs.get(tabId));
+    const title = ready ? 'Hack-DevTools' : blankActionTitle;
+    if (await chrome.action.getTitle({tabId}) === title) return;
+    const path = chrome.runtime.getURL(ready ? 'assets/logo.png' : 'assets/logo-inactive.png');
+    await chrome.action.setIcon({tabId, path});
+    await chrome.action.setTitle({tabId, title});
+  }).catch(() => {
+    // The tab may have closed while its action was being updated.
+  });
+}
+
+async function initializeActions() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map(tab => refreshAction(tab.id, tab)));
+}
+
+chrome.runtime.onInstalled.addListener(() => initializeActions().catch(() => {}));
+chrome.runtime.onStartup.addListener(() => initializeActions().catch(() => {}));
+chrome.tabs.onCreated.addListener(tab => refreshAction(tab.id, tab));
+chrome.tabs.onActivated.addListener(({tabId}) => refreshAction(tabId));
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (change.status || change.url) refreshAction(tabId, tab);
+});
 async function recordRequest(details) {
   if (details.tabId < 0) return;
   const key = sessionKey('capture', details.tabId);
@@ -97,7 +118,12 @@ async function fetchRequest(request, captureHeaders = false) {
   const rule = headerRule(FETCH_RULE_ID, headers, {tabIds: [-1], initiatorDomains: [extensionInitiatorDomain], requestDomains: [new URL(request.url).hostname], resourceTypes: ['xmlhttprequest']});
   await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [FETCH_RULE_ID], addRules: headers.length ? [rule] : []});
   const started = performance.now();
-  if (captureHeaders) activeFetchCapture = {headers: []};
+  let capturedRequest;
+  if (captureHeaders) {
+    capturedRequest = {url: new URL(request.url).href, headers: []};
+    capturedRequest.ready = new Promise(resolve => { capturedRequest.resolve = resolve; });
+    activeFetchCapture = capturedRequest;
+  }
   if (request.pauseRedirects) {
     const networkUrl = new URL(request.url);
     networkUrl.hash = '';
@@ -116,7 +142,10 @@ async function fetchRequest(request, captureHeaders = false) {
     }
     if (captureHeaders) {
       await response.body?.cancel();
-      const headersText = editableHeaders(activeFetchCapture.headers);
+      if (!capturedRequest.headers.length) {
+        await Promise.race([capturedRequest.ready, new Promise(resolve => setTimeout(resolve, 500))]);
+      }
+      const headersText = editableHeaders(capturedRequest.headers);
       if (!headersText) throw new Error('Chrome did not expose request headers for this page.');
       return {url: response.url, headersText};
     }
@@ -229,8 +258,9 @@ chrome.webRequest.onBeforeRequest.addListener(details => {
 }, {urls: ['http://*/*', 'https://*/*'], types: ['main_frame']}, ['requestBody']);
 
 chrome.webRequest.onSendHeaders.addListener(details => {
-  if (activeFetchCapture && details.tabId === -1 && details.initiator === extensionOrigin) {
-    activeFetchCapture.headers = details.requestHeaders || [];
+  if (activeFetchCapture && details.tabId === -1 && details.initiator === extensionOrigin && details.url === activeFetchCapture.url && details.requestHeaders?.length) {
+    activeFetchCapture.headers = details.requestHeaders;
+    activeFetchCapture.resolve();
   }
   if (details.type === 'main_frame' && details.tabId >= 0) {
     serial(tabQueues, `capture:${details.tabId}`, () => chrome.storage.session.set({

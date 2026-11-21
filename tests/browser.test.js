@@ -13,11 +13,18 @@ const profile = path.join(output, 'chrome-' + randomUUID());
 const chromePath = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const requests = [], exceptions = [];
 let printPolls=0;
+let releaseLoadingPage;
 const server = http.createServer((request, response) => {
   let body = '';
   request.on('data', data => body += data);
   request.on('end', () => {
     requests.push({url:request.url, method:request.method, headers:request.headers, body});
+    if (request.url === '/toolbar-loading') {
+      response.writeHead(200, {'Content-Type': 'text/html'});
+      response.write('<!doctype html><title>Toolbar loading check</title>');
+      releaseLoadingPage = () => response.end();
+      return;
+    }
     if (request.url === '/api/check-in') {response.writeHead(202,{'Content-Type':'application/json'}); response.end(JSON.stringify({job_id:'local-job-1',state:'queued'})); return;}
     if (request.url === '/api/print-jobs/local-job-1') {printPolls++; response.setHeader('Content-Type','application/json'); response.end(JSON.stringify(printPolls>=2?{state:'ready',receipt_text:'ROOM 608\nGUEST Lee'}:{state:'queued'})); return;}
     if (request.url === '/redirect') {response.writeHead(302,{Location:'http://localhost:'+server.address().port+'/redirected'}); response.end(); return;}
@@ -94,6 +101,31 @@ async function run(){
   await call('Page.addScriptToEvaluateOnNewDocument',{source:`chrome.devtools={inspectedWindow:{tabId:${tabId}}};`},panel.sessionId);
   await call('Page.reload',{},panel.sessionId);
   await until(()=>evaluate(panel.sessionId,"document.documentElement.dataset.ready==='true'"),'panel reload');
+
+  const popupUrl = `chrome-extension://${id}/popup.html`;
+  await until(() => evaluate(panel.sessionId, `chrome.action.getTitle({tabId:${tabId}}).then(title=>title==='Hack-DevTools')`), 'toolbar ready on web page');
+  assert.equal(await evaluate(panel.sessionId, `chrome.action.getPopup({tabId:${tabId}})`), popupUrl);
+  const actionTabId = await evaluate(panel.sessionId, `chrome.tabs.create({url:${JSON.stringify(base+'/toolbar-ready')},active:false}).then(tab=>tab.id)`);
+  const actionReady = () => evaluate(panel.sessionId, `chrome.action.getTitle({tabId:${actionTabId}}).then(title=>title==='Hack-DevTools')`);
+  const navigateActionTab = url => evaluate(panel.sessionId, `chrome.tabs.update(${actionTabId},{url:${JSON.stringify(url)}})`);
+  try {
+    await until(actionReady, 'toolbar ready before navigation');
+    await navigateActionTab(base+'/toolbar-loading');
+    await until(() => releaseLoadingPage, 'loading page requested');
+    await until(async () => !(await actionReady()), 'workspace unavailable while loading');
+    releaseLoadingPage();
+    await until(actionReady, 'toolbar ready after loading');
+    await navigateActionTab('about:blank');
+    await until(async () => !(await actionReady()) && await evaluate(panel.sessionId,
+      `chrome.tabs.get(${actionTabId}).then(tab=>tab.url==='about:blank' && tab.status==='complete')`),
+    'workspace unavailable on blank tab');
+    assert.equal(await evaluate(panel.sessionId, `chrome.action.isEnabled(${actionTabId})`), true);
+  } finally {
+    releaseLoadingPage?.();
+    await evaluate(panel.sessionId,`chrome.tabs.remove(${actionTabId})`);
+  }
+  console.log('PASS: Chrome toolbar signals workspace readiness and keeps Scratchpad available on blank tabs');
+
   if(process.env.HACK_DEVTOOLS_BENCH){
     const timings=[];
     for(let round=0;round<6;round++){
@@ -215,6 +247,12 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('response-pane').compareDocumentPosition(document.getElementById('history-pane')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
   assert.equal(await evaluate(panel.sessionId,"Boolean(document.getElementById('history-pane').compareDocumentPosition(document.getElementById('scratch')) & Node.DOCUMENT_POSITION_FOLLOWING)"),true);
   assert.equal(await evaluate(panel.sessionId,"document.querySelector('.composer').lastElementChild.className"),'scratch');
+  assert.equal(await evaluate(panel.sessionId,"document.querySelector('.scratch').open"),false);
+  const initialPayloads = await evaluate(panel.sessionId,"document.querySelectorAll('#payload-list .payload').length");
+  const totalPayloads = Number((await evaluate(panel.sessionId,"document.getElementById('payload-count').textContent")).split('/')[1].trim());
+  assert(initialPayloads > 0 && initialPayloads < totalPayloads);
+  const loadedPayloads = await evaluate(panel.sessionId,"(() => {const list=document.getElementById('payload-list');for(let i=0;i<20;i++){list.scrollTop=list.scrollHeight;list.dispatchEvent(new Event('scroll'));}return list.querySelectorAll('.payload').length})()");
+  assert.equal(loadedPayloads,totalPayloads);
   await evaluate(panel.sessionId,"document.getElementById('fetch-headers').click()");
   await until(()=>evaluate(panel.sessionId,"!document.getElementById('fetch-headers').disabled && /user-agent:/i.test(document.getElementById('headers').value)"),'Fetch headers button');
   await evaluate(panel.sessionId,"document.getElementById('reset-headers').click()");
@@ -226,7 +264,7 @@ async function run(){
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('body').value"),'abcXYZdef');
   await evaluate(panel.sessionId,"document.getElementById('transform').value='base64-encode';document.getElementById('apply-transform').click()");
   await until(()=>evaluate(panel.sessionId,"document.getElementById('body').value==='abcWFla def'.replace(' ','')"),'selection transform');
-  await evaluate(panel.sessionId,"document.getElementById('scratch').focus();document.getElementById('scratch').value='abcXYZdef';document.getElementById('scratch').setSelectionRange(3,6);document.getElementById('search').value='Form parameters';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
+  await evaluate(panel.sessionId,"document.querySelector('.scratch summary').click();document.getElementById('scratch').focus();document.getElementById('scratch').value='abcXYZdef';document.getElementById('scratch').setSelectionRange(3,6);document.getElementById('search').value='Form parameters';document.getElementById('search').dispatchEvent(new Event('input'));document.querySelector('.payload').click();");
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abcname=XYZ&value=1def');
   await evaluate(panel.sessionId,"document.getElementById('undo').click()");
   assert.equal(await evaluate(panel.sessionId,"document.getElementById('scratch').value"),'abcXYZdef');

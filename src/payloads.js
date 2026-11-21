@@ -76,7 +76,18 @@ export const PAYLOADS = Object.freeze([
   ...catalog.filter(entry => entry.category !== 'Templates')
 ].map(entry => Object.freeze(entry)));
 export const CATEGORIES = ['All', ...new Set(PAYLOADS.map(entry => entry.category))];
+const searchIndex = PAYLOADS.map(entry => ({
+  entry,
+  text: `${entry.label} ${entry.section} ${entry.category} ${entry.template}`.toLowerCase()
+}));
+
 export function searchPayloads(query = '', category = 'All') {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  return PAYLOADS.filter(entry => (category === 'All' || entry.category === category) && words.every(word => `${entry.label} ${entry.section} ${entry.category} ${entry.template}`.toLowerCase().includes(word)));
+  const matches = [];
+  for (const item of searchIndex) {
+    if ((category === 'All' || item.entry.category === category) && words.every(word => item.text.includes(word))) {
+      matches.push(item.entry);
+    }
+  }
+  return matches;
 }

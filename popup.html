@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hack-DevTools</title>
+  <link rel="stylesheet" href="styles/popup.css">
+  <script type="module" src="src/popup.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="assets/logo.png" width="22" height="22" alt="">
+      <h1>Hack-DevTools</h1>
+    </header>
+    <button id="open-workspace" type="button" disabled>Open workspace</button>
+    <p id="workspace-status" class="hint" role="status" hidden></p>
+    <section class="scratchpad" aria-labelledby="scratchpad-label">
+      <label id="scratchpad-label" for="quick-text">Quick Scratchpad</label>
+      <textarea id="quick-text" placeholder="Write here ..." rows="4" spellcheck="false" disabled></textarea>
+      <div class="scratchpad-actions">
+        <select id="quick-transform" aria-label="Text transformation" disabled></select>
+        <button id="quick-apply" type="button" disabled>Apply</button>
+        <button id="quick-copy" type="button" disabled>Copy</button>
+      </div>
+      <p id="scratchpad-status" class="hint" role="status" hidden></p>
+    </section>
+    <footer class="hint"><kbd>F12</kbd> → Hack-DevTools</footer>
+  </main>
+</body>
+</html>

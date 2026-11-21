@@ -39,25 +39,42 @@ export function md5(text) {
   return toHex(new Uint8Array(result.buffer));
 }
 
+// The optional third field adds a general text transform to a Quick Scratchpad group.
 export const TRANSFORMS = [
-  ['url-encode', 'URL encode'], ['url-decode', 'URL decode'],
-  ['url-double', 'Double URL encode'], ['base64-encode', 'Base64 encode'],
-  ['base64-decode', 'Base64 decode'], ['base64url-encode', 'Base64url encode'],
-  ['hex-encode', 'Hex encode'], ['hex-decode', 'Hex decode'],
-  ['html-encode', 'HTML entities'], ['html-decode', 'Decode HTML entities'],
-  ['unicode-escape', 'Unicode escape'], ['unicode-unescape', 'Decode Unicode escapes'],
-  ['unicode-nfc', 'Unicode NFC'], ['unicode-nfd', 'Unicode NFD'],
-  ['unicode-nfkc', 'Unicode NFKC'], ['unicode-nfkd', 'Unicode NFKD'],
+  ['url-encode', 'URL encode', 'URL and Base64'],
+  ['url-decode', 'URL decode', 'URL and Base64'],
+  ['url-double', 'Double URL encode'],
+  ['base64-encode', 'Base64 encode', 'URL and Base64'],
+  ['base64-decode', 'Base64 decode', 'URL and Base64'],
+  ['base64url-encode', 'Base64url encode', 'URL and Base64'],
+  ['hex-encode', 'Hex encode', 'Hex and HTML'],
+  ['hex-decode', 'Hex decode', 'Hex and HTML'],
+  ['html-encode', 'HTML entities', 'Hex and HTML'],
+  ['html-decode', 'Decode HTML entities', 'Hex and HTML'],
+  ['unicode-escape', 'Unicode escape', 'Unicode'],
+  ['unicode-unescape', 'Decode Unicode escapes', 'Unicode'],
+  ['unicode-nfc', 'Unicode NFC', 'Unicode'],
+  ['unicode-nfd', 'Unicode NFD', 'Unicode'],
+  ['unicode-nfkc', 'Unicode NFKC', 'Unicode'],
+  ['unicode-nfkd', 'Unicode NFKD', 'Unicode'],
   ['latin-o-greek', 'Latin o → Greek ο (U+03BF)'],
   ['latin-o-cyrillic', 'Latin o → Cyrillic о (U+043E)'],
   ['latin-o-fullwidth', 'Latin o → Fullwidth ｏ (U+FF4F)'],
   ['latin-cyrillic-lookalikes', 'Latin a/c/e/o/p → Cyrillic lookalikes'],
-  ['json-format', 'Format JSON'], ['json-minify', 'Minify JSON'], ['jwt-decode', 'Decode JWT (unverified)'],
-  ['uppercase', 'Uppercase'], ['lowercase', 'Lowercase'], ['rot13', 'ROT13'],
-  ['md5', 'MD5'], ['sha1', 'SHA-1'], ['sha256', 'SHA-256'], ['sha512', 'SHA-512'],
+  ['json-format', 'Format JSON', 'JSON and tokens'],
+  ['json-minify', 'Minify JSON', 'JSON and tokens'],
+  ['jwt-decode', 'Decode JWT (unverified)', 'JSON and tokens'],
+  ['uppercase', 'Uppercase', 'Text'],
+  ['lowercase', 'Lowercase', 'Text'],
+  ['rot13', 'ROT13', 'Text'],
+  ['md5', 'MD5', 'Hashes'],
+  ['sha1', 'SHA-1', 'Hashes'],
+  ['sha256', 'SHA-256', 'Hashes'],
+  ['sha512', 'SHA-512', 'Hashes'],
   ['mysql-char', 'MySQL CHAR()'], ['mssql-char', 'MSSQL NCHAR()'], ['oracle-char', 'Oracle CHR()'],
   ['js-char', 'JavaScript fromCodePoint()'], ['sql-comments', 'SQL spaces → comments'],
-  ['addslashes', 'Add slashes'], ['trim', 'Trim whitespace']
+  ['addslashes', 'Add slashes'],
+  ['trim', 'Trim whitespace', 'Text']
 ];
 
 export async function transform(action, text) {
