@@ -6,6 +6,7 @@ Hack-DevTools is a browser DevTools workspace for editing HTTP requests and insp
 
 - The extension observes HTTP and HTTPS page navigations so **Load page** can recover the inspected tab's URL, method, request body, and request headers. This data can include form values, cookies, or authorization headers.
 - The request editor handles URLs, headers, bodies, responses, Scratchpad text, and session history that you create while using the extension.
+- Depending on the page and request, these records can contain personally identifiable information, authentication values, browsing URLs, request activity, and website content.
 - When you click **Send**, **Fetch** under Header overrides, or a follow-up request control, the browser sends a request to the destination URL you chose. That destination receives the request data and any credentials you chose to include, as it would for a browser request.
 
 ## Storage and retention
