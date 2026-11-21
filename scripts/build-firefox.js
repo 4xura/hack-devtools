@@ -14,6 +14,11 @@ for (const file of files) fs.cpSync(path.join(root, file), path.join(target, fil
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 delete manifest.minimum_chrome_version;
 manifest.background = {scripts: ['src/background.js'], type: 'module'};
+manifest.action = {
+  default_title: 'Open Hack-DevTools for this tab',
+  default_icon: 'assets/logo.png',
+  default_area: 'navbar'
+};
 manifest.browser_specific_settings = {gecko: {
   id: 'hack-devtools@axura.dev',
   strict_min_version: '142.0',

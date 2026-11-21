@@ -15,6 +15,8 @@ const firefox=[process.env.FIREFOX_PATH,path.join(process.env.PROGRAMFILES || ''
 if (!firefox) throw new Error('Set FIREFOX_PATH to a Firefox executable.');
 const built = spawnSync(process.execPath, [path.join(root,'scripts/build-firefox.js')], {cwd:root,encoding:'utf8'});
 assert.equal(built.status,0,built.stderr || built.stdout);
+const firefoxManifest = JSON.parse(fs.readFileSync(path.join(root,'dist/firefox-unpacked/manifest.json'),'utf8'));
+assert.equal(firefoxManifest.action.default_area,'navbar');
 fs.rmSync(target,{recursive:true,force:true});
 fs.cpSync(path.join(root,'dist/firefox-unpacked'),target,{recursive:true});
 const requests=[];
@@ -37,7 +39,7 @@ setTimeout(async()=>{
   try {
     const tab=await browser.tabs.create({url:${JSON.stringify(base+'/start')},active:false});
     await browser.storage.session.set({smokeTabId:tab.id});
-    await browser.tabs.create({url:browser.runtime.getURL('panel.html'),active:true});
+    await browser.tabs.create({url:browser.runtime.getURL('panel.html?tabId='+tab.id),active:true});
   } catch(error) {
     fetch(${JSON.stringify(base+'/report')},{method:'POST',body:JSON.stringify({error:'background: '+error.message})});
   }
@@ -50,6 +52,7 @@ setTimeout(async()=>{
   try {
     const tabId=(await browser.storage.session.get('smokeTabId')).smokeTabId;
     if(!Number.isInteger(tabId)) throw new Error('No inspected tab');
+    const loadedFromTab=document.getElementById('url').value===smokeBase+'/start';
     document.getElementById('url').value=smokeBase+'/post';
     document.getElementById('method').value='POST';
     document.getElementById('mode').value='fetch';
@@ -78,7 +81,7 @@ setTimeout(async()=>{
     const manual=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:'',pauseRedirects:true});
     const redirect=await send('execute',{tabId,url:smokeBase+'/redirect',method:'GET',mode:'fetch',bodyType:'text',body:'',headersText:''});
     const nav=await send('execute',{tabId,url:smokeBase+'/nav',method:'GET',mode:'navigate',bodyType:'text',body:'',headersText:''});
-    result={pageHeaders,get,post,manual,redirect,nav,manualDisabled:document.getElementById('pause-redirects').disabled,bodyErrorBelow,bodyErrorCleared,formattedBody,importedRequest};
+    result={pageHeaders,get,post,manual,redirect,nav,loadedFromTab,manualDisabled:document.getElementById('pause-redirects').disabled,bodyErrorBelow,bodyErrorCleared,formattedBody,importedRequest};
   } catch(error) {result={error:'panel: '+error.message};}
   await fetch(smokeBase+'/report',{method:'POST',body:JSON.stringify(result)});
 },1200);
@@ -91,6 +94,7 @@ let watchdog;
 try{
   const outcome=await Promise.race([report,new Promise((_,reject)=>watchdog=setTimeout(()=>reject(new Error('Firefox smoke timeout. '+log.slice(-1200))),30000))]);
   assert(!outcome.error,outcome.error);
+  assert(outcome.pageHeaders,JSON.stringify(outcome)+'\n'+log.slice(-2500));
   for(const key of ['pageHeaders','get','post','redirect','nav']) assert.equal(outcome[key].ok,true,`${key}: ${outcome[key].error}`);
   assert.equal(outcome.manual.ok,false);
   assert.match(outcome.manual.error,/Firefox cannot inspect intermediate redirects/);
@@ -99,6 +103,7 @@ try{
   assert.equal(outcome.bodyErrorCleared,true);
   assert.deepEqual(outcome.formattedBody,{reservation:'A7K-204',family_name:'Lee'});
   assert.equal(outcome.importedRequest,true);
+  assert.equal(outcome.loadedFromTab,true);
   assert.equal(outcome.get.result.status,200);
   assert.equal(outcome.post.result.status,200);
   assert.equal(outcome.redirect.result.status,200);

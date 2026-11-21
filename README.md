@@ -24,6 +24,8 @@ Unlike traditional intercepting proxies such as BurpSuite, this lightweight pene
 
 Open a web page, open DevTools, and select **Hack-DevTools**. Look in the tab overflow menu if it’s hidden.
 
+In Firefox, the toolbar button opens the full request workspace for the active tab. You can move it using Firefox’s toolbar customization.
+
 ### Build from source
 
 On Windows with Node.js 22 or newer, run this from the repository root in PowerShell.

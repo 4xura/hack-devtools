@@ -5,7 +5,9 @@ import {formatBody} from './body-format.js';
 import {importRequest} from './request-import.js';
 
 const $ = id => document.getElementById(id);
-const tabId = chrome.devtools?.inspectedWindow?.tabId ?? -1;
+const requestedTabId = Number(new URLSearchParams(location.search).get('tabId'));
+const tabId = chrome.devtools?.inspectedWindow?.tabId
+  ?? (Number.isSafeInteger(requestedTabId) && requestedTabId > 0 ? requestedTabId : -1);
 const draftKey = `draft:${tabId}`;
 const editors = ['url', 'body', 'headers', 'scratch'];
 const labels = {url: 'URL', body: 'request body', headers: 'headers', scratch: 'scratchpad'};

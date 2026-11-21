@@ -11,6 +11,13 @@ const extensionInitiatorDomain = new URL(chrome.runtime.getURL('/')).hostname;
 const isFirefox = typeof chrome.runtime.getBrowserInfo === 'function';
 const extraHeaderSpec = isFirefox ? [] : ['extraHeaders'];
 
+if (isFirefox) {
+  chrome.action.onClicked.addListener(tab => {
+    if (!Number.isInteger(tab.id) || tab.id < 0) return;
+    chrome.tabs.create({url: chrome.runtime.getURL(`panel.html?tabId=${tab.id}`)}).catch(() => {});
+  });
+}
+
 function serial(queue, key, action) {
   const previous = queue.get(key) || Promise.resolve();
   const next = previous.catch(() => {}).then(action);
@@ -213,7 +220,7 @@ async function handle(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('panel.html')) return;
+  if (sender.id !== chrome.runtime.id || sender.url?.split(/[?#]/, 1)[0] !== chrome.runtime.getURL('panel.html')) return;
   handle(message).then(result => respond({ok: true, result}), error => respond({ok: false, error: error.message}));
   return true;
 });
