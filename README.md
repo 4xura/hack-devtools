@@ -20,13 +20,9 @@ Unlike traditional intercepting proxies such as BurpSuite, this lightweight pene
 
 **Chrome:** Download and extract the Chrome ZIP from [GitHub Releases](https://github.com/4xura/hack-devtools/releases/latest). In `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the extracted folder.
 
-**Firefox Developer Edition or Nightly:** Download the `-unsigned.xpi` file from [GitHub Releases](https://github.com/4xura/hack-devtools/releases/latest). This gives you a permanent installation:
+**Firefox:** [Download the Mozilla-signed XPI](https://github.com/4xura/hack-devtools/releases/download/v1.2.2/hack-devtools-firefox-1.2.2-signed.xpi). Open `about:addons`, choose **Install Add-on From File…** from the gear menu, and select the downloaded `.xpi`. Confirm Firefox’s permission prompts. This works in standard Firefox and stays installed after a restart.
 
-1. In `about:config`, set `xpinstall.signatures.required` to `false`.
-2. Open `about:addons`. Choose **Install Add-on From File…** from the gear menu and select the downloaded `.xpi`.
-3. Confirm Firefox’s permission prompts. Open a web page’s DevTools and select **Hack-DevTools**.
-
-**Standard Firefox:** The current release has no Mozilla-signed XPI, so it cannot be installed there. Mozilla requires signing even for self-distributed add-ons. The Firefox ZIP contains the build for signing and is not the install file. [Mozilla’s signing requirements](https://support.mozilla.org/en-US/kb/add-on-signing-in-firefox)
+The release also includes an unsigned XPI for Developer Edition or Nightly testing and a Firefox ZIP for signing.
 
 Open a web page, open DevTools, and select **Hack-DevTools**. Look in the tab overflow menu if it’s hidden.
 
